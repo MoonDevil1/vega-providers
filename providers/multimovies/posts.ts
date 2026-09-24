@@ -1,13 +1,81 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
 
-const BASE_URL = "https://multimovies.tax";
+const DOMAINS = [
+  "https://multimovies.shop",
+  "https://multimovies.click",
+  "https://multimovies.ch",
+  "https://multimovies.tax",
+  "https://multimovies.top"
+];
 
 const headers = {
   "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-  Referer: BASE_URL,
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.5",
 };
+
+async function getHtml(path: string, signal?: AbortSignal): Promise<string> {
+  const cleanPath = path.replace(/^\/+/, "");
+  for (const domain of DOMAINS) {
+    const url = `${domain}/${cleanPath}`;
+    // Try native fetch first
+    try {
+      const res = await fetch(url, { headers, signal });
+      if (res.ok) {
+        const text = await res.text();
+        if (text && text.length > 500) return text;
+      }
+    } catch (_) {}
+
+    // Fallback to axios
+    try {
+      const res = await axios.get(url, { headers, timeout: 8000, signal });
+      if (res.data && typeof res.data === "string" && res.data.length > 500) {
+        return res.data;
+      }
+    } catch (_) {}
+  }
+  return "";
+}
+
+function parsePosts(html: string) {
+  if (!html) return [];
+  const $ = cheerio.load(html);
+  const posts: Array<{ title: string; link: string; image: string }> = [];
+
+  $("article.item, div.item, .movies-list .item, div.poster, .flw-item").each((_, el) => {
+    const link =
+      $(el).find("a").first().attr("href") ||
+      $(el).attr("href") ||
+      "";
+
+    const title =
+      $(el).find(".data h3 a, h3 a, .title a, .data h3").first().text().trim() ||
+      $(el).find("img").first().attr("alt") ||
+      "";
+
+    let image =
+      $(el).find("img").attr("data-src") ||
+      $(el).find("img").attr("data-lazy-src") ||
+      $(el).find("img").attr("data-original") ||
+      $(el).find("img").attr("src") ||
+      "";
+
+    if (image && image.startsWith("//")) {
+      image = "https:" + image;
+    }
+
+    if (link && title && link !== "#") {
+      if (!posts.some((p) => p.link === link)) {
+        posts.push({ title, link, image });
+      }
+    }
+  });
+
+  return posts;
+}
 
 export const getPosts = async ({
   filter,
@@ -21,32 +89,10 @@ export const getPosts = async ({
   providerContext?: any;
 }) => {
   try {
-    const url =
-      page === 1
-        ? `${BASE_URL}${filter}/`
-        : `${BASE_URL}${filter}/page/${page}/`;
-
-    const response = await axios.get(url, { headers, signal });
-    const $ = cheerio.load(response.data);
-    const posts: Array<{ title: string; link: string; image: string }> = [];
-
-    $("article.item, div.item, .movies-list .item, div.poster").each((_, el) => {
-      const title =
-        $(el).find(".data h3 a, .title a").first().text().trim() ||
-        $(el).find("img").first().attr("alt") ||
-        "";
-      const link = $(el).find("a").first().attr("href") || "";
-      const image =
-        $(el).find("img").attr("data-src") ||
-        $(el).find("img").attr("src") ||
-        "";
-
-      if (link && title) {
-        posts.push({ title, link, image });
-      }
-    });
-
-    return posts;
+    const cleanFilter = filter.replace(/^\/+|\/+$/g, "");
+    const path = page === 1 ? `${cleanFilter}/` : `${cleanFilter}/page/${page}/`;
+    const html = await getHtml(path, signal);
+    return parsePosts(html);
   } catch (error) {
     console.error("Error in getPosts:", error);
     return [];
@@ -65,32 +111,12 @@ export const getSearchPosts = async ({
   providerContext?: any;
 }) => {
   try {
-    const url =
+    const path =
       page === 1
-        ? `${BASE_URL}/?s=${encodeURIComponent(searchQuery)}`
-        : `${BASE_URL}/page/${page}/?s=${encodeURIComponent(searchQuery)}`;
-
-    const response = await axios.get(url, { headers, signal });
-    const $ = cheerio.load(response.data);
-    const posts: Array<{ title: string; link: string; image: string }> = [];
-
-    $("article.item, div.result-item, div.item").each((_, el) => {
-      const title =
-        $(el).find(".details .title a, .data h3 a, h3 a").first().text().trim() ||
-        $(el).find("img").first().attr("alt") ||
-        "";
-      const link = $(el).find("a").first().attr("href") || "";
-      const image =
-        $(el).find("img").attr("data-src") ||
-        $(el).find("img").attr("src") ||
-        "";
-
-      if (link && title) {
-        posts.push({ title, link, image });
-      }
-    });
-
-    return posts;
+        ? `?s=${encodeURIComponent(searchQuery)}`
+        : `page/${page}/?s=${encodeURIComponent(searchQuery)}`;
+    const html = await getHtml(path, signal);
+    return parsePosts(html);
   } catch (error) {
     console.error("Error in getSearchPosts:", error);
     return [];
