@@ -1,140 +1,92 @@
-const DOMAINS = [
-  "https://multimovies.shop",
-  "https://multimovies.click",
-  "https://multimovies.ch",
-  "https://multimovies.tax",
-  "https://multimovies.top",
-];
+import { Info, ProviderContext } from "../types";
 
-const headers = {
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  Accept:
-    "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-};
-
-export const getMeta = async ({
+export const getMeta = async function ({
   link,
+  providerContext,
 }: {
   link: string;
-  providerContext?: any;
-}) => {
+  providerContext: ProviderContext;
+}): Promise<Info> {
+  const { axios, cheerio, commonHeaders } = providerContext;
+
   try {
-    let html = "";
-    try {
-      const res = await fetch(link, { headers });
-      if (res.ok) html = await res.text();
-    } catch (_) {}
+    const res = await axios.get(link, {
+      headers: {
+        ...commonHeaders,
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      },
+      timeout: 10000,
+    });
 
-    if (!html) {
-      try {
-        const urlObj = new URL(link);
-        for (const d of DOMAINS) {
-          try {
-            const altUrl = `${d}${urlObj.pathname}${urlObj.search}`;
-            const res = await fetch(altUrl, { headers });
-            if (res.ok) {
-              html = await res.text();
-              break;
-            }
-          } catch (_) {}
-        }
-      } catch (_) {}
-    }
+    const $ = cheerio.load(res.data);
+    const title =
+      $("h1").first().text().trim() ||
+      $(".data h1").text().trim() ||
+      $(".entry-title").text().trim() ||
+      "";
 
-    if (!html) {
-      return { title: "", synopsis: "", image: "", type: "movie" };
-    }
+    const synopsis =
+      $(".wp-content p, .entry-content p, .description p").first().text().trim() || "";
 
-    const titleMatch =
-      html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) ||
-      html.match(/<title>([\s\S]*?)<\/title>/i);
-    const title = titleMatch
-      ? titleMatch[1].replace(/<[^>]+>/g, "").trim()
-      : "";
+    let image =
+      $(".poster img").attr("data-src") ||
+      $(".poster img").attr("src") ||
+      $('meta[property="og:image"]').attr("content") ||
+      "";
 
-    const descMatch =
-      html.match(/<div class=["'][^"']*(?:wp-content|entry-content|description)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
-      html.match(/<p class=["']desc["'][^>]*>([\s\S]*?)<\/p>/i);
-    let synopsis = "";
-    if (descMatch) {
-      const pMatch = descMatch[1].match(/<p[^>]*>([\s\S]*?)<\/p>/i);
-      synopsis = (pMatch ? pMatch[1] : descMatch[1])
-        .replace(/<[^>]+>/g, "")
-        .trim();
-    }
+    if (image && image.startsWith("//")) image = "https:" + image;
 
-    const posterMatch =
-      html.match(/<div class=["']poster["'][^>]*>[\s\S]*?<img[^>]*data-src=["']([^"']+)["']/i) ||
-      html.match(/<div class=["']poster["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i) ||
-      html.match(/property=["']og:image["']\s*content=["']([^"']+)["']/i);
-    let image = posterMatch ? posterMatch[1] : "";
-    if (image.startsWith("//")) image = "https:" + image;
+    const linkList: any[] = [];
+    const seasons = $("#seasons .se-c");
 
-    const isSeries =
-      html.includes('id="seasons"') ||
-      html.includes('class="episodios"') ||
-      html.includes('class="se-c"');
+    if (seasons.length > 0) {
+      seasons.each((sIdx, sEl) => {
+        const sNum = $(sEl).find(".se-t").text().trim() || `${sIdx + 1}`;
+        const directLinks: any[] = [];
 
-    if (isSeries) {
-      const episodeList: Array<{
-        title: string;
-        link: string;
-        episode: number;
-        season: number;
-      }> = [];
-
-      const seasonRegex = /<div class=["']se-c["'][^>]*>([\s\S]*?)<\/ul>\s*<\/div>/gi;
-      let sMatch: RegExpExecArray | null;
-      let sCount = 1;
-
-      while ((sMatch = seasonRegex.exec(html)) !== null) {
-        const sBlock = sMatch[1];
-        const sNumMatch = sBlock.match(/<span class=["']se-t["'][^>]*>(\d+)<\/span>/i);
-        const seasonNum = sNumMatch ? parseInt(sNumMatch[1]) : sCount++;
-
-        const epRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
-        let epMatch: RegExpExecArray | null;
-
-        while ((epMatch = epRegex.exec(sBlock)) !== null) {
-          const epBlock = epMatch[1];
-          const epLinkMatch = epBlock.match(/href=["'](https?:\/\/[^"'\s]+)["']/i);
-          const epTitleMatch =
-            epBlock.match(/<div class=["']episodiotitle["'][^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i) ||
-            epBlock.match(/<a[^>]*>([^<]+)<\/a>/i);
-          const numMatch = epBlock.match(/<div class=["']numerando["'][^>]*>([\s\S]*?)<\/div>/i);
-
-          let epNum = 1;
-          if (numMatch) {
-            const parts = numMatch[1].replace(/<[^>]+>/g, "").trim().split("-");
-            if (parts[1]) epNum = parseInt(parts[1].trim()) || 1;
-          }
-
-          if (epLinkMatch) {
-            episodeList.push({
-              title: epTitleMatch ? epTitleMatch[1].trim() : `Episode ${epNum}`,
-              link: epLinkMatch[1],
-              episode: epNum,
-              season: seasonNum,
+        $(sEl).find("ul.episodios li").each((_, epEl) => {
+          const epLink = $(epEl).find("a").attr("href") || "";
+          const epTitle =
+            $(epEl).find(".episodiotitle a").text().trim() ||
+            $(epEl).find("a").text().trim();
+          if (epLink) {
+            directLinks.push({
+              title: epTitle || `Episode ${directLinks.length + 1}`,
+              link: epLink,
+              type: "series",
             });
           }
-        }
-      }
+        });
 
-      return {
-        title,
-        synopsis,
-        image,
-        type: "series",
-        episodeList,
-      };
+        if (directLinks.length > 0) {
+          linkList.push({
+            title: sNum.toLowerCase().includes("season") ? sNum : `Season ${sNum}`,
+            directLinks,
+          });
+        }
+      });
+    }
+
+    if (linkList.length === 0) {
+      linkList.push({
+        title: "Full Movie",
+        directLinks: [
+          {
+            title: title || "Play Movie",
+            link: link,
+            type: "movie",
+          },
+        ],
+      });
     }
 
     return {
       title,
       synopsis,
       image,
-      type: "movie",
+      type: seasons.length > 0 ? "series" : "movie",
+      linkList,
     };
   } catch (err) {
     return {
@@ -142,6 +94,12 @@ export const getMeta = async ({
       synopsis: "",
       image: "",
       type: "movie",
+      linkList: [
+        {
+          title: "Default",
+          directLinks: [{ title: "Stream", link, type: "movie" }],
+        },
+      ],
     };
   }
 };

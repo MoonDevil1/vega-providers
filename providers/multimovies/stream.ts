@@ -1,64 +1,68 @@
-const headers = {
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  Accept: "*/*",
-};
+import { Stream, ProviderContext } from "../types";
 
-export const getStream = async ({
+export const getStream = async function ({
   link,
+  type,
   signal,
+  providerContext,
+  isDownload,
 }: {
   link: string;
-  type?: string;
+  type: string;
   signal?: AbortSignal;
-  providerContext?: any;
+  providerContext: ProviderContext;
   isDownload?: boolean;
-}) => {
+}): Promise<Stream[]> {
+  const { axios, cheerio, commonHeaders } = providerContext;
+  const streams: Stream[] = [];
+
   try {
-    const res = await fetch(link, { headers, signal });
-    if (!res.ok) return [];
-    const html = await res.text();
-    const streams: Array<{
-      server: string;
-      link: string;
-      type: string;
-      headers?: Record<string, string>;
-    }> = [];
+    const res = await axios.get(link, {
+      headers: {
+        ...commonHeaders,
+        Referer: link,
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      },
+      timeout: 10000,
+      signal,
+    });
 
-    // Extract direct iframes
-    const iframeRegex = /<iframe[^>]*src=["']([^"']+)["']/gi;
-    let match: RegExpExecArray | null;
-    let count = 1;
+    const $ = cheerio.load(res.data);
 
-    while ((match = iframeRegex.exec(html)) !== null) {
-      let src = match[1];
+    // 1. Direct iframes on the page
+    $("iframe").each((i, el) => {
+      let src = $(el).attr("src") || $(el).attr("data-src") || "";
       if (src.startsWith("//")) src = "https:" + src;
       if (src.startsWith("http")) {
         streams.push({
-          server: `Player ${count++}`,
+          server: `Player ${i + 1}`,
           link: src,
           type: src.includes(".m3u8") ? "m3u8" : "mp4",
-          headers: { Referer: link },
+          quality: "1080",
         });
       }
-    }
+    });
 
-    // Extract Dooplay AJAX player options
-    const optRegex = /<li[^>]*data-post=["'](\d+)["'][^>]*data-nume=["'](\d+)["'][^>]*data-type=["']([^"']+)["'][^>]*>([\s\S]*?)<\/li>/gi;
-    while ((match = optRegex.exec(html)) !== null) {
-      const postId = match[1];
-      const nume = match[2];
-      const pType = match[3];
-      const titleMatch = match[4].match(/<span class=["']title["'][^>]*>([^<]+)<\/span>/i);
-      const serverTitle = titleMatch ? titleMatch[1].trim() : `Server ${nume}`;
+    // 2. Dooplay player options
+    const options = $("#playeroptionsul li");
+    for (let idx = 0; idx < options.length; idx++) {
+      const el = options[idx];
+      const post = $(el).attr("data-post");
+      const nume = $(el).attr("data-nume");
+      const pType = $(el).attr("data-type");
+      const serverTitle = $(el).find(".title").text().trim() || `Server ${idx + 1}`;
 
-      try {
-        const origin = new URL(link).origin;
-        const ajaxUrl = `${origin}/wp-json/dooplayer/v2/${postId}/${pType}/${nume}`;
-        const ajaxRes = await fetch(ajaxUrl, { headers, signal });
-        if (ajaxRes.ok) {
-          const json = await ajaxRes.json();
-          let embed = json.embed_url;
+      if (post && nume && pType) {
+        try {
+          const origin = new URL(link).origin;
+          const ajaxUrl = `${origin}/wp-json/dooplayer/v2/${post}/${pType}/${nume}`;
+          const ajaxRes = await axios.get(ajaxUrl, {
+            headers: { ...commonHeaders, Referer: link },
+            signal,
+          });
+
+          let embed = ajaxRes.data?.embed_url;
           if (embed) {
             const frameMatch = embed.match(/src=["']([^"']+)["']/i);
             let embedSrc = frameMatch ? frameMatch[1] : embed;
@@ -68,16 +72,14 @@ export const getStream = async ({
                 server: serverTitle,
                 link: embedSrc,
                 type: embedSrc.includes(".m3u8") ? "m3u8" : "mp4",
-                headers: { Referer: origin },
+                quality: "1080",
               });
             }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
     }
+  } catch (_) {}
 
-    return streams;
-  } catch (err) {
-    return [];
-  }
+  return streams;
 };

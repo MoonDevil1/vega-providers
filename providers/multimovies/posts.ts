@@ -1,4 +1,6 @@
-const DOMAINS = [
+import { Post, ProviderContext } from "../types";
+
+const FALLBACK_DOMAINS = [
   "https://multimovies.shop",
   "https://multimovies.click",
   "https://multimovies.ch",
@@ -6,117 +8,143 @@ const DOMAINS = [
   "https://multimovies.top",
 ];
 
-const headers = {
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  Accept:
-    "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-  "Accept-Language": "en-US,en;q=0.5",
-};
-
-async function fetchHtml(path: string, signal?: AbortSignal): Promise<string> {
-  const cleanPath = path.replace(/^\/+/, "");
-  for (const domain of DOMAINS) {
+async function getBaseUrl(providerContext: ProviderContext): Promise<string> {
+  if (providerContext.kvStore) {
     try {
-      const url = `${domain}/${cleanPath}`;
-      const res = await fetch(url, { headers, signal });
-      if (res.ok) {
-        const text = await res.text();
-        if (text && text.length > 500) {
-          return text;
-        }
-      }
+      const saved = await providerContext.kvStore.get<string>("baseUrlOverride");
+      if (saved) return saved.replace(/\/+$/, "");
     } catch (_) {}
   }
-  return "";
+  return FALLBACK_DOMAINS[0];
 }
 
-function parsePosts(html: string): Array<{ title: string; link: string; image: string }> {
-  const posts: Array<{ title: string; link: string; image: string }> = [];
-  const seen = new Set<string>();
-
-  const articleRegex = /<article[\s\S]*?<\/article>/gi;
-  let match: RegExpExecArray | null;
-
-  while ((match = articleRegex.exec(html)) !== null) {
-    const block = match[0];
-
-    const linkMatch =
-      block.match(/href=["'](https?:\/\/[^"'\s]+)["']/i) ||
-      block.match(/href=["'](\/[^"'\s]+)["']/i);
-    let link = linkMatch ? linkMatch[1] : "";
-    if (link.startsWith("/")) {
-      link = `${DOMAINS[0]}${link}`;
-    }
-
-    const titleMatch =
-      block.match(/<h3[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i) ||
-      block.match(/alt=["']([^"']+)["']/i) ||
-      block.match(/<h3[^>]*>([^<]+)<\/h3>/i);
-    const title = titleMatch ? titleMatch[1].trim() : "";
-
-    const imgMatch =
-      block.match(/data-src=["']([^"'\s]+)["']/i) ||
-      block.match(/data-lazy-src=["']([^"'\s]+)["']/i) ||
-      block.match(/data-original=["']([^"'\s]+)["']/i) ||
-      block.match(/src=["']([^"'\s]+)["']/i);
-    let image = imgMatch ? imgMatch[1] : "";
-    if (image.startsWith("//")) {
-      image = "https:" + image;
-    }
-    if (image.includes("data:image")) {
-      image = "";
-    }
-
-    if (link && title && link !== "#" && !seen.has(link)) {
-      seen.add(link);
-      posts.push({ title, link, image });
-    }
-  }
-
-  return posts;
-}
-
-export const getPosts = async ({
+export const getPosts = async function ({
   filter,
   page = 1,
   signal,
+  providerContext,
 }: {
   filter: string;
-  page?: number;
-  signal?: AbortSignal;
-  providerValue?: string;
-  providerContext?: any;
-}) => {
-  try {
-    const cleanFilter = filter.replace(/^\/+|\/+$/g, "");
-    const path = page === 1 ? `${cleanFilter}/` : `${cleanFilter}/page/${page}/`;
-    const html = await fetchHtml(path, signal);
-    return parsePosts(html);
-  } catch (err) {
-    return [];
+  page: number;
+  providerValue: string;
+  signal: AbortSignal;
+  providerContext: ProviderContext;
+}): Promise<Post[]> {
+  const { axios, cheerio, commonHeaders } = providerContext;
+  const baseUrl = await getBaseUrl(providerContext);
+  const cleanFilter = filter.replace(/^\/+|\/+$/g, "");
+  const path = page === 1 ? `${cleanFilter}/` : `${cleanFilter}/page/${page}/`;
+
+  const domainList = [baseUrl, ...FALLBACK_DOMAINS.filter((d) => d !== baseUrl)];
+
+  for (const domain of domainList) {
+    try {
+      const url = `${domain}/${path}`;
+      const res = await axios.get(url, {
+        headers: {
+          ...commonHeaders,
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        },
+        timeout: 10000,
+        signal,
+      });
+
+      if (!res?.data) continue;
+      const $ = cheerio.load(res.data);
+      const posts: Post[] = [];
+
+      $("article.item, div.item, .movies-list .item, div.poster").each((_, el) => {
+        const link = $(el).find("a").first().attr("href") || "";
+        const title =
+          $(el).find(".data h3 a, h3 a, .title a, .data h3").first().text().trim() ||
+          $(el).find("img").first().attr("alt") ||
+          "";
+        let image =
+          $(el).find("img").attr("data-src") ||
+          $(el).find("img").attr("data-lazy-src") ||
+          $(el).find("img").attr("data-original") ||
+          $(el).find("img").attr("src") ||
+          "";
+
+        if (image && image.startsWith("//")) image = "https:" + image;
+
+        if (link && title && link !== "#") {
+          if (!posts.some((p) => p.link === link)) {
+            posts.push({ title, link, image });
+          }
+        }
+      });
+
+      if (posts.length > 0) return posts;
+    } catch (_) {}
   }
+
+  return [];
 };
 
-export const getSearchPosts = async ({
+export const getSearchPosts = async function ({
   searchQuery,
   page = 1,
   signal,
+  providerContext,
 }: {
   searchQuery: string;
-  page?: number;
-  signal?: AbortSignal;
-  providerValue?: string;
-  providerContext?: any;
-}) => {
-  try {
-    const path =
-      page === 1
-        ? `?s=${encodeURIComponent(searchQuery)}`
-        : `page/${page}/?s=${encodeURIComponent(searchQuery)}`;
-    const html = await fetchHtml(path, signal);
-    return parsePosts(html);
-  } catch (err) {
-    return [];
+  page: number;
+  providerValue: string;
+  signal: AbortSignal;
+  providerContext: ProviderContext;
+}): Promise<Post[]> {
+  const { axios, cheerio, commonHeaders } = providerContext;
+  const baseUrl = await getBaseUrl(providerContext);
+  const path =
+    page === 1
+      ? `?s=${encodeURIComponent(searchQuery)}`
+      : `page/${page}/?s=${encodeURIComponent(searchQuery)}`;
+
+  const domainList = [baseUrl, ...FALLBACK_DOMAINS.filter((d) => d !== baseUrl)];
+
+  for (const domain of domainList) {
+    try {
+      const url = `${domain}/${path}`;
+      const res = await axios.get(url, {
+        headers: {
+          ...commonHeaders,
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        },
+        timeout: 10000,
+        signal,
+      });
+
+      if (!res?.data) continue;
+      const $ = cheerio.load(res.data);
+      const posts: Post[] = [];
+
+      $("article.item, div.item, .result-item, div.poster").each((_, el) => {
+        const link = $(el).find("a").first().attr("href") || "";
+        const title =
+          $(el).find(".details .title a, .data h3 a, h3 a, .title a").first().text().trim() ||
+          $(el).find("img").first().attr("alt") ||
+          "";
+        let image =
+          $(el).find("img").attr("data-src") ||
+          $(el).find("img").attr("data-lazy-src") ||
+          $(el).find("img").attr("src") ||
+          "";
+
+        if (image && image.startsWith("//")) image = "https:" + image;
+
+        if (link && title && link !== "#") {
+          if (!posts.some((p) => p.link === link)) {
+            posts.push({ title, link, image });
+          }
+        }
+      });
+
+      if (posts.length > 0) return posts;
+    } catch (_) {}
   }
+
+  return [];
 };

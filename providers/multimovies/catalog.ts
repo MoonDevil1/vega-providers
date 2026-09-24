@@ -1,16 +1,7 @@
 export const catalog = [
-  {
-    title: "Latest Movies",
-    filter: "movies",
-  },
-  {
-    title: "Latest TV Shows",
-    filter: "tvshows",
-  },
-  {
-    title: "Trending",
-    filter: "trending",
-  },
+  { title: "Latest Movies", filter: "movies" },
+  { title: "Latest TV Shows", filter: "tvshows" },
+  { title: "Trending", filter: "trending" },
 ];
 
 export const genres = [
