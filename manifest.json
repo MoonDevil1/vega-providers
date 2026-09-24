@@ -1,11 +1,10 @@
 [
   {
-    "display_name": "EXAMPLE",
-    "value": "example",
-    "version": "1.0",
-    "icon": "",
+    "display_name": "MultiMovies",
+    "value": "multimovies",
+    "version": "1.0.0",
+    "icon": "https://multimovies.tax/wp-content/uploads/2022/01/logo.png",
     "type": "global",
-    "hasSettings": true,
     "disabled": false
   }
 ]
