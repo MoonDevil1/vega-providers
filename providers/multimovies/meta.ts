@@ -1,12 +1,16 @@
-import axios from "axios";
-import * as cheerio from "cheerio";
-
-const BASE_URL = "https://multimovies.tax";
+const DOMAINS = [
+  "https://multimovies.shop",
+  "https://multimovies.click",
+  "https://multimovies.ch",
+  "https://multimovies.tax",
+  "https://multimovies.top",
+];
 
 const headers = {
   "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-  Referer: BASE_URL,
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
 };
 
 export const getMeta = async ({
@@ -16,25 +20,63 @@ export const getMeta = async ({
   providerContext?: any;
 }) => {
   try {
-    const response = await axios.get(link, { headers });
-    const $ = cheerio.load(response.data);
+    let html = "";
+    try {
+      const res = await fetch(link, { headers });
+      if (res.ok) html = await res.text();
+    } catch (_) {}
 
-    const title =
-      $("h1").first().text().trim() ||
-      $(".data h1").text().trim() ||
-      $(".entry-title").text().trim();
+    if (!html) {
+      try {
+        const urlObj = new URL(link);
+        for (const d of DOMAINS) {
+          try {
+            const altUrl = `${d}${urlObj.pathname}${urlObj.search}`;
+            const res = await fetch(altUrl, { headers });
+            if (res.ok) {
+              html = await res.text();
+              break;
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
 
-    const synopsis =
-      $(".wp-content p, .entry-content p, .description p").first().text().trim();
+    if (!html) {
+      return { title: "", synopsis: "", image: "", type: "movie" };
+    }
 
-    const image =
-      $(".poster img").attr("data-src") ||
-      $(".poster img").attr("src") ||
-      "";
+    const titleMatch =
+      html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) ||
+      html.match(/<title>([\s\S]*?)<\/title>/i);
+    const title = titleMatch
+      ? titleMatch[1].replace(/<[^>]+>/g, "").trim()
+      : "";
 
-    const hasEpisodes = $("#seasons, .episodios, ul.episodios").length > 0;
+    const descMatch =
+      html.match(/<div class=["'][^"']*(?:wp-content|entry-content|description)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
+      html.match(/<p class=["']desc["'][^>]*>([\s\S]*?)<\/p>/i);
+    let synopsis = "";
+    if (descMatch) {
+      const pMatch = descMatch[1].match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+      synopsis = (pMatch ? pMatch[1] : descMatch[1])
+        .replace(/<[^>]+>/g, "")
+        .trim();
+    }
 
-    if (hasEpisodes) {
+    const posterMatch =
+      html.match(/<div class=["']poster["'][^>]*>[\s\S]*?<img[^>]*data-src=["']([^"']+)["']/i) ||
+      html.match(/<div class=["']poster["'][^>]*>[\s\S]*?<img[^>]*src=["']([^"']+)["']/i) ||
+      html.match(/property=["']og:image["']\s*content=["']([^"']+)["']/i);
+    let image = posterMatch ? posterMatch[1] : "";
+    if (image.startsWith("//")) image = "https:" + image;
+
+    const isSeries =
+      html.includes('id="seasons"') ||
+      html.includes('class="episodios"') ||
+      html.includes('class="se-c"');
+
+    if (isSeries) {
       const episodeList: Array<{
         title: string;
         link: string;
@@ -42,31 +84,42 @@ export const getMeta = async ({
         season: number;
       }> = [];
 
-      $("#seasons .se-c, .se-c").each((sIdx, sEl) => {
-        const seasonTitle = $(sEl).find(".se-t").text().trim();
-        const seasonNum = parseInt(seasonTitle) || sIdx + 1;
+      const seasonRegex = /<div class=["']se-c["'][^>]*>([\s\S]*?)<\/ul>\s*<\/div>/gi;
+      let sMatch: RegExpExecArray | null;
+      let sCount = 1;
 
-        $(sEl)
-          .find("ul.episodios li")
-          .each((_, epEl) => {
-            const epLink = $(epEl).find("a").attr("href") || "";
-            const epTitle =
-              $(epEl).find(".episodiotitle a").text().trim() ||
-              $(epEl).find("a").text().trim();
-            const numText = $(epEl).find(".numerando").text().trim();
-            const parts = numText.split("-");
-            const epNum = parseInt(parts[1]?.trim() || "") || 1;
+      while ((sMatch = seasonRegex.exec(html)) !== null) {
+        const sBlock = sMatch[1];
+        const sNumMatch = sBlock.match(/<span class=["']se-t["'][^>]*>(\d+)<\/span>/i);
+        const seasonNum = sNumMatch ? parseInt(sNumMatch[1]) : sCount++;
 
-            if (epLink) {
-              episodeList.push({
-                title: epTitle || `Episode ${epNum}`,
-                link: epLink,
-                episode: epNum,
-                season: seasonNum,
-              });
-            }
-          });
-      });
+        const epRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+        let epMatch: RegExpExecArray | null;
+
+        while ((epMatch = epRegex.exec(sBlock)) !== null) {
+          const epBlock = epMatch[1];
+          const epLinkMatch = epBlock.match(/href=["'](https?:\/\/[^"'\s]+)["']/i);
+          const epTitleMatch =
+            epBlock.match(/<div class=["']episodiotitle["'][^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i) ||
+            epBlock.match(/<a[^>]*>([^<]+)<\/a>/i);
+          const numMatch = epBlock.match(/<div class=["']numerando["'][^>]*>([\s\S]*?)<\/div>/i);
+
+          let epNum = 1;
+          if (numMatch) {
+            const parts = numMatch[1].replace(/<[^>]+>/g, "").trim().split("-");
+            if (parts[1]) epNum = parseInt(parts[1].trim()) || 1;
+          }
+
+          if (epLinkMatch) {
+            episodeList.push({
+              title: epTitleMatch ? epTitleMatch[1].trim() : `Episode ${epNum}`,
+              link: epLinkMatch[1],
+              episode: epNum,
+              season: seasonNum,
+            });
+          }
+        }
+      }
 
       return {
         title,
@@ -75,16 +128,15 @@ export const getMeta = async ({
         type: "series",
         episodeList,
       };
-    } else {
-      return {
-        title,
-        synopsis,
-        image,
-        type: "movie",
-      };
     }
-  } catch (error) {
-    console.error("Error in getMeta:", error);
+
+    return {
+      title,
+      synopsis,
+      image,
+      type: "movie",
+    };
+  } catch (err) {
     return {
       title: "",
       synopsis: "",
