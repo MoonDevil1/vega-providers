@@ -45,13 +45,13 @@ function parseCards($: any, baseUrl: string): Post[] {
 
   const add = (scope: any, rawItem?: any) => {
     const item = rawItem || {};
-    const titleLink = scope.find(
+    const titleLink = (scope.is("a[href]") ? scope : scope.find(
       ".details .title a[href], .data h3 a[href], .entry-title a[href], h2 a[href], h3 a[href], a[rel='bookmark'], a[href]"
-    ).filter((_: number, el: any) => {
+    )).filter((_: number, el: any) => {
       const href = $(el).attr("href") || "";
       return href && !/^(#|javascript:|mailto:)/i.test(href);
     }).first();
-    const img = scope.find("img, source").first();
+    const img = (scope.is("img, source") ? scope : scope.find("picture img, img, source")).first();
     const caption = scope.find(".title, .name, .entry-title, h2, h3, [class*='title'], [class*='name']").first();
     const title = String(
       item.title || scope.attr("data-title") || scope.attr("title") ||
@@ -73,7 +73,11 @@ function parseCards($: any, baseUrl: string): Post[] {
       }
     }
     // A few themes store poster URLs on the card itself.
-    imageRaw = imageRaw || scope.attr("data-poster") || scope.attr("data-image") || "";
+    imageRaw = imageRaw || scope.attr("data-poster") || scope.attr("data-image") || scope.attr("data-src") || "";
+    if (!imageRaw) {
+      const styled = String(scope.attr("style") || "").match(/background-image\\s*:\\s*url\\([\'"]?([^\'")]+)[\'"]?\\)/i);
+      if (styled?.[1]) imageRaw = styled[1];
+    }
     const image = abs(imageRaw, baseUrl);
     if (!image || !/^https?:$/i.test(new URL(image).protocol)) return;
     if (!/^https?:$/i.test(new URL(href).protocol)) return;
@@ -206,7 +210,7 @@ async function fetchPosts(url: string, providerContext: ProviderContext): Promis
 }
 
 function buildCatalogUrl(filter: string | undefined, page: number): string {
-  const route = filter || "/movies/";
+  const route = filter || "/";
   const url = new URL(route, BASE_URL);
   if (page > 1) url.searchParams.set("page", String(page));
   return url.href;
