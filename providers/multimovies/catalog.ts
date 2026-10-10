@@ -1,15 +1,25 @@
-// Multimovies uses route-based pages, not a /catalog JSON endpoint.
+// Multimovies catalog routes mirrored from the working CloudStream provider.
 export const catalog = [
-  { title: "Trending", filter: "trending" },
-  { title: "Movies", filter: "movies" },
-  { title: "TV Shows", filter: "series" },
-  { title: "K-Drama", filter: "genre/k-drama" },
+  { title: "Latest Movies", filter: "/catalog?type=movie&sort=latest" },
+  { title: "Latest TV Shows", filter: "/catalog?type=tv&sort=latest" },
+  { title: "Trending", filter: "/catalog?sort=rating" },
+  { title: "Bollywood", filter: "/catalog?genre=bollywood-movies&sort=latest" },
+  { title: "Hollywood", filter: "/catalog?genre=hollywood&sort=latest" },
+  { title: "South Indian", filter: "/catalog?genre=south-indian&sort=latest" },
+  { title: "Netflix", filter: "/catalog?genre=netflix&sort=latest" },
+  { title: "Jio Hotstar", filter: "/catalog?genre=disney-hotstar&sort=latest" },
+  { title: "Anime Series", filter: "/catalog?genre=anime-series&sort=latest" },
+  { title: "Anime Movies", filter: "/catalog?genre=anime-movies&sort=latest" },
 ];
 
 export const genres = [
-  { title: "Action", filter: "genre/action" },
-  { title: "Comedy", filter: "genre/comedy" },
-  { title: "Drama", filter: "genre/drama" },
-  { title: "Horror", filter: "genre/horror" },
-  { title: "Thriller", filter: "genre/thriller" },
+  { title: "Latest Movies", filter: "/catalog?type=movie&sort=latest" },
+  { title: "Latest TV Shows", filter: "/catalog?type=tv&sort=latest" },
+  { title: "Trending", filter: "/catalog?sort=rating" },
+  { title: "Bollywood", filter: "/catalog?genre=bollywood-movies&sort=latest" },
+  { title: "Hollywood", filter: "/catalog?genre=hollywood&sort=latest" },
+  { title: "South Indian", filter: "/catalog?genre=south-indian&sort=latest" },
+  { title: "Netflix", filter: "/catalog?genre=netflix&sort=latest" },
+  { title: "Anime Series", filter: "/catalog?genre=anime-series&sort=latest" },
+  { title: "Anime Movies", filter: "/catalog?genre=anime-movies&sort=latest" },
 ];
