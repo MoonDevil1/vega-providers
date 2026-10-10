@@ -200,21 +200,30 @@ async function fetchHtml(
 
   const verified = await verificationInFlight;
   if (verified) {
-    // Use the WebView HTML for the URL being verified. For other simultaneous URLs,
-    // retry their own URL with the newly obtained cookies.
-    if (verified.url === url) return verified.data;
+    // The WebView can finish on a landing/verification page even after the
+    // challenge is cleared. Always request the exact catalog/search URL again
+    // with the verified cookies before parsing anything as provider content.
     if (verified.cookies) {
       try {
-        const retried = await request(verified.cookies, cachedSession?.userAgent || REQUEST_HEADERS["User-Agent"]);
+        const retried = await request(
+          verified.cookies,
+          cachedSession?.userAgent || REQUEST_HEADERS["User-Agent"],
+        );
         if (retried && !looksBlocked(retried)) return retried;
       } catch (error) {
         console.warn("Multimovies retry with verified session failed.", error);
       }
     }
-    return verified.data;
+
+    // Only trust the WebView HTML when it belongs to this exact URL and is
+    // not a recognized challenge page. Never return another request's HTML.
+    if (verified.url === url && verified.data && !looksBlocked(verified.data)) {
+      return verified.data;
+    }
   }
 
-  return html;
+  // Do not parse the verification page as a catalog; it creates empty results.
+  return html && !looksBlocked(html) ? html : "";
 }
 
 async function fetchPosts(
