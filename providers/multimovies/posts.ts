@@ -115,7 +115,8 @@ function looksBlocked(html: string): boolean {
   return ["cf-chl-", "challenge-platform", "checking your browser", "just a moment", "attention required", "ddos-guard"].some(s => lower.includes(s));
 }
 
-let verificationInFlight: Promise<{ data: string; cookies: string; url: string } | null> | null = null;\nlet verificationAttempted = false;
+let verificationInFlight: Promise<{ data: string; cookies: string; url: string } | null> | null = null;
+let verificationAttempted = false;
 const COOKIE_STORE_KEY = "multimovies.cloudflare.session";
 let cachedSession: { cookies: string; userAgent: string } | null = null;
 
