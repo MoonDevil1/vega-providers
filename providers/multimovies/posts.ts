@@ -115,6 +115,19 @@ function looksBlocked(html: string): boolean {
   return ["cf-chl-", "challenge-platform", "checking your browser", "just a moment", "attention required", "ddos-guard"].some(s => lower.includes(s));
 }
 
+// The site can return a 200 response containing a JS shell or a WAF page
+// without the usual Cloudflare marker. For catalog/search requests, actual
+// cards are the reliable signal that the response is usable.
+function hasCatalogCards(html: string, providerContext: ProviderContext): boolean {
+  if (!html || looksBlocked(html)) return false;
+  try {
+    const $ = providerContext.cheerio.load(html);
+    return $("article.poster-card [data-save-title], article.poster-card[data-save-title]").length > 0;
+  } catch {
+    return false;
+  }
+}
+
 let verificationInFlight: Promise<{ data: string; cookies: string; url: string } | null> | null = null;
 let verificationAttempted = false;
 const COOKIE_STORE_KEY = "multimovies.cloudflare.session";
@@ -146,7 +159,9 @@ async function fetchHtml(url: string, providerContext: ProviderContext): Promise
 
   try {
     html = await request(cookies, userAgent);
-    if (html && !looksBlocked(html)) return html;
+    // Do not accept a 200 response just because it isn't a recognizable
+    // challenge page: the current site sometimes returns a shell without cards.
+    if (hasCatalogCards(html, providerContext)) return html;
   } catch (error) {
     console.warn("Multimovies direct request failed.", error);
   }
@@ -197,6 +212,9 @@ async function fetchHtml(url: string, providerContext: ProviderContext): Promise
     }
     if (verified.url === url && verified.data && !looksBlocked(verified.data)) return verified.data;
   }
+  // The direct response may be a valid empty search page, but never mistake a
+  // shell/challenge for usable content; callers will report zero cards and log
+  // the URL and HTML length for provider diagnostics.
   return html && !looksBlocked(html) ? html : "";
 }
 
