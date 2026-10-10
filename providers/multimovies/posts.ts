@@ -5,9 +5,9 @@ const BASE_URL = "https://multimovies.garden";
 const REQUEST_HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
   "Accept-Language": "en-US,en;q=0.9",
-  "Referer": BASE_URL + "/",
+  Referer: BASE_URL + "/",
 };
 
 function abs(value: unknown, base = BASE_URL): string {
@@ -26,39 +26,41 @@ function parseJson(raw: string): any {
     return JSON.parse(raw);
   } catch {
     try {
-      return JSON.parse(raw.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&"));
+      return JSON.parse(
+        raw.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&"),
+      );
     } catch {
       return null;
     }
   }
 }
 
+// Match the reference provider: inspect each poster card, then read the
+// data-save-title JSON embedded somewhere inside that card.
 function parseCards($: any, baseUrl: string): Post[] {
   const out: Post[] = [];
   const seen = new Set<string>();
 
-  // Match the current site's card structure, with a fallback for markup changes.
-  $("[data-save-title]").each((_: number, el: any) => {
+  $("article.poster-card").each((_: number, el: any) => {
     const $card = $(el);
-    const raw = $card.attr("data-save-title");
+    const raw =
+      $card.find("[data-save-title]").first().attr("data-save-title") ||
+      $card.attr("data-save-title");
     if (!raw) return;
+
     const item = parseJson(raw);
     if (!item) return;
 
-    const title = String(item.title || $card.find("h2,h3,.title").first().text() || "").trim();
-    const linkRaw =
-      item.url ||
-      $card.attr("href") ||
-      $card.find("a[href]").first().attr("href") ||
-      "";
-    const link = abs(linkRaw, baseUrl);
+    const title = String(item.title || "").trim();
+    const link = abs(item.url || "", baseUrl);
     if (!title || !link || seen.has(link)) return;
     seen.add(link);
 
-    // The reference provider reads src first; this site may also lazy-load images.
     const $img = $card.find("img").first();
     const srcset = $img.attr("srcset") || $img.attr("data-srcset") || "";
-    const srcsetUrl = srcset ? srcset.split(",")[0].trim().split(/\s+/)[0] : "";
+    const srcsetUrl = srcset
+      ? srcset.split(",")[0].trim().split(/\s+/)[0]
+      : "";
     const imageRaw =
       $img.attr("src") ||
       $img.attr("data-src") ||
@@ -66,11 +68,10 @@ function parseCards($: any, baseUrl: string): Post[] {
       $img.attr("data-original") ||
       $img.attr("data-image") ||
       $img.attr("data-poster") ||
-      $card.attr("data-poster") ||
-      srcsetUrl ||
       item.poster ||
       item.image ||
       item.image_url ||
+      srcsetUrl ||
       "";
     const image = abs(imageRaw, baseUrl);
 
@@ -82,16 +83,56 @@ function parseCards($: any, baseUrl: string): Post[] {
     });
   });
 
+  // Fallback in case the site changes its outer card tag but retains the
+  // same data-save-title JSON marker.
+  if (out.length === 0) {
+    $("[data-save-title]").each((_: number, el: any) => {
+      const $marker = $(el);
+      const item = parseJson($marker.attr("data-save-title") || "");
+      if (!item) return;
+
+      const title = String(item.title || "").trim();
+      const link = abs(item.url || "", baseUrl);
+      if (!title || !link || seen.has(link)) return;
+      seen.add(link);
+
+      const $card = $marker.closest("article, .poster-card, .movie-card, .card");
+      const $img = $card.find("img").first();
+      const imageRaw =
+        $img.attr("src") ||
+        $img.attr("data-src") ||
+        $img.attr("data-lazy-src") ||
+        $img.attr("data-original") ||
+        item.poster ||
+        item.image ||
+        item.image_url ||
+        "";
+      out.push({
+        title,
+        link,
+        image: abs(imageRaw, baseUrl),
+        provider: "multimovies",
+      });
+    });
+  }
+
   return out;
 }
 
-async function fetchPosts(url: string, providerContext: ProviderContext): Promise<{ posts: Post[]; hasNext: boolean }> {
+async function fetchPosts(
+  url: string,
+  providerContext: ProviderContext,
+): Promise<{ posts: Post[]; hasNext: boolean }> {
   const { axios, cheerio } = providerContext;
   try {
-    const response = await axios.get(url, { headers: REQUEST_HEADERS, timeout: 20000 });
+    const response = await axios.get(url, {
+      headers: REQUEST_HEADERS,
+      timeout: 20000,
+    });
     const $ = cheerio.load(response.data);
     const posts = parseCards($, url);
-    const hasNext = $('a[rel="next"], .pagination a.next, a.next.page-numbers').length > 0;
+    const hasNext =
+      $('a[rel="next"], .pagination a.next, a.next.page-numbers').length > 0;
     console.log("Multimovies catalog:", url, "cards:", posts.length);
     return { posts, hasNext: hasNext && posts.length > 0 };
   } catch (error) {
