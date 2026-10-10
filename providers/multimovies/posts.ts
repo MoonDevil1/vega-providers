@@ -26,63 +26,40 @@ function parseJson(raw: string): any {
     return JSON.parse(raw);
   } catch {
     try {
-      return JSON.parse(
-        raw.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&"),
-      );
+      return JSON.parse(raw.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&"));
     } catch {
       return null;
     }
   }
 }
 
-// Parse the site's real poster markup first. Current pages use
-// <article class="poster-card"><a class="poster-art" href="...">
-// with an image and caption; data-save-title is not present on every card.
 function parseCards($: any, baseUrl: string): Post[] {
   const out: Post[] = [];
   const seen = new Set<string>();
-
   const addCard = ($card: any, $anchor: any, rawItem?: any) => {
     const item = rawItem || {};
-    const $img = $anchor.find("img").first().length
-      ? $anchor.find("img").first()
-      : $card.find("img").first();
-    const $caption = $card.find(
-      ".poster-caption, .entry-title, .post-title, .title, h2, h3",
-    ).first();
-
-    const title = String(
-      item.title ||
-      $anchor.attr("aria-label") ||
-      $anchor.attr("title") ||
-      $img.attr("alt") ||
-      $caption.text() ||
-      $card.attr("aria-label") ||
-      "",
-    ).replace(/\s+/g, " ").trim();
+    const $img = $anchor.find("img").first().length ? $anchor.find("img").first() : $card.find("img").first();
+    const $caption = $card.find(".poster-caption, .entry-title, .post-title, .title, h2, h3").first();
+    const title = String(item.title || $caption.text() || $anchor.attr("aria-label") || $anchor.attr("title") || $img.attr("alt") || $card.attr("aria-label") || "")
+      .replace(/\s+/g, " ").trim();
     const link = abs(item.url || $anchor.attr("href") || $card.find("a[href]").first().attr("href") || "", baseUrl);
     if (!title || !link || seen.has(link)) return;
     seen.add(link);
-
     const srcset = $img.attr("srcset") || $img.attr("data-srcset") || "";
     const srcsetUrl = srcset ? srcset.split(",")[0].trim().split(/\s+/)[0] : "";
-    const imageRaw =
-      item.poster || item.image || item.image_url ||
-      $img.attr("data-src") || $img.attr("data-lazy-src") ||
-      $img.attr("data-original") || $img.attr("data-image") ||
-      $img.attr("data-poster") || $img.attr("src") || srcsetUrl || "";
+    const imageRaw = item.poster || item.image || item.image_url ||
+      $img.attr("data-src") || $img.attr("data-lazy-src") || $img.attr("data-original") ||
+      $img.attr("data-image") || $img.attr("data-poster") || $img.attr("src") || srcsetUrl || "";
     out.push({ title, link, image: abs(imageRaw, baseUrl), provider: "multimovies" });
   };
 
   $("article.poster-card, .poster-card, article.movie-card, .movie-card").each((_: number, el: any) => {
     const $card = $(el);
     const $anchor = $card.find("a.poster-art[href], a[href]").first();
-    const raw = $card.find("[data-save-title]").first().attr("data-save-title") ||
-      $card.attr("data-save-title") || "";
+    const raw = $card.find("[data-save-title]").first().attr("data-save-title") || $card.attr("data-save-title") || "";
     addCard($card, $anchor, raw ? parseJson(raw) : undefined);
   });
 
-  // Some site pages use different card wrappers or only expose the JSON marker.
   if (out.length === 0) {
     $("[data-save-title]").each((_: number, el: any) => {
       const $marker = $(el);
@@ -94,47 +71,30 @@ function parseCards($: any, baseUrl: string): Post[] {
     });
   }
 
-  // Last-resort support for poster cards without a known wrapper class.
   if (out.length === 0) {
     $("a.poster-art[href], article a[href]").each((_: number, el: any) => {
       const $anchor = $(el);
       const $card = $anchor.closest("article, .poster-card, .movie-card, .card");
-      if (!$card.length) return;
-      addCard($card, $anchor);
+      if ($card.length) addCard($card, $anchor);
     });
   }
-
   return out;
 }
 
 function looksBlocked(html: string): boolean {
   const lower = html.toLowerCase();
-  return (
-    lower.includes("cf-chl-") ||
-    lower.includes("challenge-platform") ||
-    lower.includes("checking your browser") ||
-    lower.includes("just a moment") ||
-    lower.includes("attention required") ||
-    lower.includes("ddos-guard")
-  );
+  return ["cf-chl-", "challenge-platform", "checking your browser", "just a moment", "attention required", "ddos-guard"].some(s => lower.includes(s));
 }
 
-// Share a single verification dialog across simultaneous Home/Search requests.
-// Vega may request several catalog sections at once; opening one WebView per section
-// causes the verification dialog to reopen every time the user taps Done.
 let verificationInFlight: Promise<{ data: string; cookies: string; url: string } | null> | null = null;
 const COOKIE_STORE_KEY = "multimovies.cloudflare.session";
 let cachedSession: { cookies: string; userAgent: string } | null = null;
 
-async function fetchHtml(
-  url: string,
-  providerContext: ProviderContext,
-): Promise<string> {
+async function fetchHtml(url: string, providerContext: ProviderContext): Promise<string> {
   const { axios, openWebView, kvStore } = providerContext;
   let html = "";
   let cookies = "";
   let userAgent = REQUEST_HEADERS["User-Agent"];
-
   try {
     const saved = await kvStore.get<{ cookies?: string; userAgent?: string }>(COOKIE_STORE_KEY);
     if (saved && typeof saved === "object") {
@@ -142,30 +102,23 @@ async function fetchHtml(
       userAgent = saved.userAgent || userAgent;
       if (cookies) cachedSession = { cookies, userAgent };
     }
-  } catch {
-    // Continue without a stored session if provider storage is unavailable.
-  }
-  if (cachedSession) {
-    cookies = cachedSession.cookies;
-    userAgent = cachedSession.userAgent;
-  }
+  } catch {}
+  if (cachedSession) ({ cookies, userAgent } = cachedSession);
 
   const request = async (cookieHeader: string, agent: string) => {
     const headers: Record<string, string> = { ...REQUEST_HEADERS, "User-Agent": agent };
     if (cookieHeader) headers.Cookie = cookieHeader;
-    const response = await axios.get(url, { headers, timeout: 20000 });
+    const response = await axios.get(url, { headers, timeout: 20000, maxRedirects: 5 });
     return typeof response.data === "string" ? response.data : "";
   };
 
   try {
     html = await request(cookies, userAgent);
     if (html && !looksBlocked(html)) return html;
-    console.warn("Multimovies returned a verification page.");
   } catch (error) {
     console.warn("Multimovies direct request failed.", error);
   }
 
-  // Try one shared WebView challenge for all concurrent catalog requests.
   if (!verificationInFlight) {
     verificationInFlight = (async () => {
       try {
@@ -178,22 +131,11 @@ async function fetchHtml(
           timeoutMs: 120000,
         });
         if (!result?.data || looksBlocked(result.data)) return null;
-        // Some Vega WebView builds populate cookieMap but leave the flattened
-        // cookies field empty. Persist both representations so the verified
-        // Cloudflare session is not silently discarded.
-        const sessionCookies =
-          result.cookies ||
-          Object.entries(result.cookieMap || {})
-            .map(([name, value]) => `${name}=${value}`)
-            .join("; ");
+        const sessionCookies = result.cookies || Object.entries(result.cookieMap || {}).map(([name, value]) => `${name}=${value}`).join("; ");
         const sessionUserAgent = result.userAgent || REQUEST_HEADERS["User-Agent"];
         if (sessionCookies) {
           cachedSession = { cookies: sessionCookies, userAgent: sessionUserAgent };
-          try {
-            await kvStore.set(COOKIE_STORE_KEY, cachedSession);
-          } catch (error) {
-            console.warn("Could not save Multimovies session.", error);
-          }
+          try { await kvStore.set(COOKIE_STORE_KEY, cachedSession); } catch (error) { console.warn("Could not save Multimovies session.", error); }
         }
         return { data: result.data, cookies: sessionCookies, url };
       } catch (error) {
@@ -207,87 +149,66 @@ async function fetchHtml(
 
   const verified = await verificationInFlight;
   if (verified) {
-    // The WebView can finish on a landing/verification page even after the
-    // challenge is cleared. Always request the exact catalog/search URL again
-    // with the verified cookies before parsing anything as provider content.
     if (verified.cookies) {
       try {
-        const retried = await request(
-          verified.cookies,
-          cachedSession?.userAgent || REQUEST_HEADERS["User-Agent"],
-        );
+        const retried = await request(verified.cookies, cachedSession?.userAgent || REQUEST_HEADERS["User-Agent"]);
         if (retried && !looksBlocked(retried)) return retried;
-      } catch (error) {
-        console.warn("Multimovies retry with verified session failed.", error);
-      }
+      } catch (error) { console.warn("Multimovies retry with verified session failed.", error); }
     }
-
-    // Only trust the WebView HTML when it belongs to this exact URL and is
-    // not a recognized challenge page. Never return another request's HTML.
-    if (verified.url === url && verified.data && !looksBlocked(verified.data)) {
-      return verified.data;
-    }
+    if (verified.url === url && verified.data && !looksBlocked(verified.data)) return verified.data;
   }
-
-  // Do not parse the verification page as a catalog; it creates empty results.
   return html && !looksBlocked(html) ? html : "";
 }
 
-async function fetchPosts(
-  url: string,
-  providerContext: ProviderContext,
-): Promise<{ posts: Post[]; hasNext: boolean }> {
-  const { cheerio } = providerContext;
-  try {
-    const html = await fetchHtml(url, providerContext);
-    if (!html) return { posts: [], hasNext: false };
+async function fetchPosts(url: string, providerContext: ProviderContext): Promise<{ posts: Post[]; hasNext: boolean }> {
+  const html = await fetchHtml(url, providerContext);
+  if (!html) return { posts: [], hasNext: false };
+  const $ = providerContext.cheerio.load(html);
+  const posts = parseCards($, url);
+  const hasNext = $('a[rel="next"], .pagination a.next, a.next.page-numbers').length > 0;
+  console.log("Multimovies catalog result:", { url, cards: posts.length, htmlLength: html.length });
+  return { posts, hasNext: hasNext && posts.length > 0 };
+}
 
-    const $ = cheerio.load(html);
-    const posts = parseCards($, url);
-    const hasNext =
-      $('a[rel="next"], .pagination a.next, a.next.page-numbers').length > 0;
-    console.log("Multimovies catalog result:", {
-      url,
-      status: looksBlocked(html) ? "blocked" : "html received",
-      cards: posts.length,
-      htmlLength: html.length,
-    });
-    return { posts, hasNext: hasNext && posts.length > 0 };
-  } catch (error) {
-    console.error("Multimovies catalog parsing failed:", url, error);
-    return { posts: [], hasNext: false };
-  }
+function buildCatalogUrl(filter: string | undefined, page: number): string {
+  const route = filter || "/catalog?sort=rating";
+  const url = new URL(route, BASE_URL);
+  if (page > 1) url.searchParams.set("page", String(page));
+  return url.href;
 }
 
 export const getPosts = async function ({
   filter,
   page = 1,
+  signal,
   providerContext,
 }: {
   filter?: string;
   page?: number;
+  signal?: AbortSignal;
+  providerValue?: string;
   providerContext: ProviderContext;
 }): Promise<Post[]> {
-  // The current Multimovies site uses route pages (trending, movies, series,
-  // genre/action), not the obsolete /catalog?type=... endpoint.
-  const route = (filter || "trending").replace(/^\/+/, "").replace(/\/+$/, "");
-  const path = page > 1
-    ? `/${route}/page/${page}/`
-    : `/${route}`;
-  const url = new URL(path, BASE_URL);
-  const result = await fetchPosts(url.href, providerContext);
+  const url = buildCatalogUrl(filter, page);
+  const result = await fetchPosts(url, providerContext);
   return result.posts;
 };
 
 export const getSearchPosts = async function ({
   searchQuery,
+  page = 1,
+  signal,
   providerContext,
 }: {
   searchQuery: string;
+  page?: number;
+  signal?: AbortSignal;
+  providerValue?: string;
   providerContext: ProviderContext;
 }): Promise<Post[]> {
   const url = new URL("/search", BASE_URL);
   url.searchParams.set("q", searchQuery.trim());
+  if (page > 1) url.searchParams.set("page", String(page));
   const result = await fetchPosts(url.href, providerContext);
   return result.posts;
 };
