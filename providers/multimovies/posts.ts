@@ -36,11 +36,12 @@ function parseJson(raw: string): any {
 function parseCards($: any, baseUrl: string): Post[] {
   const out: Post[] = [];
   const seen = new Set<string>();
+  // The current site uses article.poster-card with a JSON payload in data-save-title.
+  // Keep older theme selectors as a fallback for pages that still use them.
   const selectors = [
-    ".result-item", ".items article", "#archive-content article",
-    "article.item", "article.poster-card", ".poster-card",
-    "article.movie-card", ".movie-card", ".card", ".post", ".result",
-    ".search-item", ".film", ".movie", ".flw-item", ".item"
+    "article.poster-card", ".poster-card", ".result-item", ".items article",
+    "#archive-content article", "article.item", "article.movie-card",
+    ".movie-card", ".search-item", ".flw-item"
   ];
 
   const add = (scope: any, rawItem?: any) => {
@@ -91,7 +92,7 @@ function parseCards($: any, baseUrl: string): Post[] {
     const raw = scope.attr("data-save-title") || scope.find("[data-save-title]").first().attr("data-save-title") || "";
     let item: any;
     if (raw) {
-      try { item = JSON.parse(raw); } catch {}
+      item = parseJson(raw) || {};
     }
     add(scope, item);
   });
@@ -245,8 +246,9 @@ export const getSearchPosts = async function ({
   providerValue?: string;
   providerContext: ProviderContext;
 }): Promise<Post[]> {
-  const url = new URL("/", BASE_URL);
-  url.searchParams.set("s", searchQuery.trim());
+  // The live site exposes its search at /search?q=..., not WordPress's ?s=.
+  const url = new URL("/search", BASE_URL);
+  url.searchParams.set("q", searchQuery.trim());
   if (page > 1) url.searchParams.set("page", String(page));
   const result = await fetchPosts(url.href, providerContext);
   return result.posts;
