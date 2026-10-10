@@ -38,7 +38,7 @@ export const getMeta = async function ({
                                                                                     const year = yearMatch ? yearMatch[1] : undefined;
                                                                                         const scoreMatch = pillsText.match(/★\s*([\d.]+)/);
                                                                                             const rating = scoreMatch ? scoreMatch[1] : undefined;
-    const imdbMatch = html.match(/tt\\d{6,}/);
+    const imdbMatch = html.match(/tt\d{6,}/);
 
                                                                                                 const genres = $(".cinejoy-detail-genres")
                                                                                                         .text()
