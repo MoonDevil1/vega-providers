@@ -13,8 +13,7 @@ const multimovies: ProviderType = {
                 },
 
                   GetSearchPosts: async ({ searchQuery, providerContext }) => {
-                      const { posts } = await getSearchPosts({ searchQuery, providerContext });
-                          return posts;
+                      return await getSearchPosts({ searchQuery, providerContext });
                             },
 
                               GetMetaData: async ({ link, providerContext }) => {
