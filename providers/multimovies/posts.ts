@@ -135,7 +135,8 @@ function looksBlocked(html: string): boolean {
 // Vega may request several catalog sections at once; opening one WebView per section
 // causes the verification dialog to reopen every time the user taps Done.
 let verificationInFlight: Promise<{ data: string; cookies: string; url: string } | null> | null = null;
-const COOKIE_STORE_KEY = "multimovies.cloudflare.cookies";
+const COOKIE_STORE_KEY = "multimovies.cloudflare.session";
+let cachedSession: { cookies: string; userAgent: string } | null = null;
 
 async function fetchHtml(
   url: string,
@@ -144,22 +145,32 @@ async function fetchHtml(
   const { axios, openWebView, kvStore } = providerContext;
   let html = "";
   let cookies = "";
+  let userAgent = REQUEST_HEADERS["User-Agent"];
 
   try {
-    cookies = (await kvStore.get<string>(COOKIE_STORE_KEY)) || "";
+    const saved = await kvStore.get<{ cookies?: string; userAgent?: string }>(COOKIE_STORE_KEY);
+    if (saved && typeof saved === "object") {
+      cookies = saved.cookies || "";
+      userAgent = saved.userAgent || userAgent;
+      if (cookies) cachedSession = { cookies, userAgent };
+    }
   } catch {
     // Continue without a stored session if provider storage is unavailable.
   }
+  if (cachedSession) {
+    cookies = cachedSession.cookies;
+    userAgent = cachedSession.userAgent;
+  }
 
-  const request = async (cookieHeader: string) => {
-    const headers: Record<string, string> = { ...REQUEST_HEADERS };
+  const request = async (cookieHeader: string, agent: string) => {
+    const headers: Record<string, string> = { ...REQUEST_HEADERS, "User-Agent": agent };
     if (cookieHeader) headers.Cookie = cookieHeader;
     const response = await axios.get(url, { headers, timeout: 20000 });
     return typeof response.data === "string" ? response.data : "";
   };
 
   try {
-    html = await request(cookies);
+    html = await request(cookies, userAgent);
     if (html && !looksBlocked(html)) return html;
     console.warn("Multimovies returned a verification page.");
   } catch (error) {
@@ -180,11 +191,13 @@ async function fetchHtml(
         });
         if (!result?.data || looksBlocked(result.data)) return null;
         const sessionCookies = result.cookies || "";
+        const sessionUserAgent = result.userAgent || REQUEST_HEADERS["User-Agent"];
         if (sessionCookies) {
+          cachedSession = { cookies: sessionCookies, userAgent: sessionUserAgent };
           try {
-            await kvStore.set(COOKIE_STORE_KEY, sessionCookies);
+            await kvStore.set(COOKIE_STORE_KEY, cachedSession);
           } catch (error) {
-            console.warn("Could not save Multimovies session cookies.", error);
+            console.warn("Could not save Multimovies session.", error);
           }
         }
         return { data: result.data, cookies: sessionCookies, url };
@@ -204,7 +217,7 @@ async function fetchHtml(
     if (verified.url === url) return verified.data;
     if (verified.cookies) {
       try {
-        const retried = await request(verified.cookies);
+        const retried = await request(verified.cookies, cachedSession?.userAgent || REQUEST_HEADERS["User-Agent"]);
         if (retried && !looksBlocked(retried)) return retried;
       } catch (error) {
         console.warn("Multimovies retry with verified session failed.", error);
