@@ -15,7 +15,19 @@ export const getMeta = async function ({
                                 // --- Basic Metadata (matches your Kotlin parseMeta) ---
                                     const title = $("h1").first().text().trim() || "";
                                         const synopsis = $("#cinejoyOverview").text().trim() || "";
-                                            const image = $('meta[property="og:image"]').attr("content") || "";
+                                            const imageRaw =
+      $('meta[property="og:image"]').attr("content") ||
+      $('meta[name="twitter:image"]').attr("content") ||
+      $(".cinejoy-detail-poster img").attr("data-src") ||
+      $(".cinejoy-detail-poster img").attr("src") ||
+      $("img").first().attr("src") ||
+      "";
+    let image = "";
+    try {
+      image = imageRaw ? new URL(imageRaw, link).href : "";
+    } catch {
+      image = "";
+    }
 
                                                 // --- Parse Pills (matches your Kotlin parsePills) ---
                                                     const pillsText = $(".cinejoy-meta-pill")
