@@ -39,9 +39,11 @@ function parseCards($: any, baseUrl: string): Post[] {
   // The current site uses article.poster-card with a JSON payload in data-save-title.
   // Keep older theme selectors as a fallback for pages that still use them.
   const selectors = [
-    "article.poster-card", ".poster-card", ".result-item", ".items article",
-    "#archive-content article", "article.item", "article.movie-card",
-    ".movie-card", ".search-item", ".flw-item"
+    // Prefer the site's serialized card payload wherever the redesign places it.
+    "[data-save-title]", "article.poster-card", ".poster-card",
+    ".result-item", ".items article", "#archive-content article",
+    "article.item", "article.movie-card", ".movie-card",
+    ".search-item", ".flw-item"
   ];
 
   const add = (scope: any, rawItem?: any) => {
@@ -122,7 +124,8 @@ function hasCatalogCards(html: string, providerContext: ProviderContext): boolea
   if (!html || looksBlocked(html)) return false;
   try {
     const $ = providerContext.cheerio.load(html);
-    return $("article.poster-card [data-save-title], article.poster-card[data-save-title]").length > 0;
+    return $("[data-save-title]").length > 0 ||
+      $("article.poster-card, .poster-card, .movie-card, .result-item").length > 0;
   } catch {
     return false;
   }
@@ -221,7 +224,15 @@ async function fetchPosts(url: string, providerContext: ProviderContext): Promis
   const $ = providerContext.cheerio.load(html);
   const posts = parseCards($, url);
   const hasNext = $('a[rel="next"], .pagination a.next, a.next.page-numbers').length > 0;
-  console.log("Multimovies catalog result:", { url, cards: posts.length, htmlLength: html.length });
+  console.log("Multimovies catalog result:", {
+    url,
+    cards: posts.length,
+    htmlLength: html.length,
+    saveTitleNodes: $("[data-save-title]").length,
+    posterCards: $("article.poster-card, .poster-card").length,
+    titleLinks: $("a[href]").length,
+    blocked: looksBlocked(html),
+  });
   return { posts, hasNext: hasNext && posts.length > 0 };
 }
 
