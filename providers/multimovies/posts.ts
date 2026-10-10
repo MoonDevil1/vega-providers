@@ -35,84 +35,72 @@ function parseJson(raw: string): any {
   }
 }
 
-// Match the reference provider: inspect each poster card, then read the
-// data-save-title JSON embedded somewhere inside that card.
+// Parse the site's real poster markup first. Current pages use
+// <article class="poster-card"><a class="poster-art" href="...">
+// with an image and caption; data-save-title is not present on every card.
 function parseCards($: any, baseUrl: string): Post[] {
   const out: Post[] = [];
   const seen = new Set<string>();
 
-  $("article.poster-card").each((_: number, el: any) => {
-    const $card = $(el);
-    const raw =
-      $card.find("[data-save-title]").first().attr("data-save-title") ||
-      $card.attr("data-save-title");
-    if (!raw) return;
+  const addCard = ($card: any, $anchor: any, rawItem?: any) => {
+    const item = rawItem || {};
+    const $img = $anchor.find("img").first().length
+      ? $anchor.find("img").first()
+      : $card.find("img").first();
+    const $caption = $card.find(
+      ".poster-caption, .entry-title, .post-title, .title, h2, h3",
+    ).first();
 
-    const item = parseJson(raw);
-    if (!item) return;
-
-    const title = String(item.title || "").trim();
-    const link = abs(item.url || "", baseUrl);
+    const title = String(
+      item.title ||
+      $anchor.attr("aria-label") ||
+      $anchor.attr("title") ||
+      $img.attr("alt") ||
+      $caption.text() ||
+      $card.attr("aria-label") ||
+      "",
+    ).replace(/\\s+/g, " ").trim();
+    const link = abs(item.url || $anchor.attr("href") || $card.find("a[href]").first().attr("href") || "", baseUrl);
     if (!title || !link || seen.has(link)) return;
     seen.add(link);
 
-    const $img = $card.find("img").first();
     const srcset = $img.attr("srcset") || $img.attr("data-srcset") || "";
-    const srcsetUrl = srcset
-      ? srcset.split(",")[0].trim().split(/\s+/)[0]
-      : "";
+    const srcsetUrl = srcset ? srcset.split(",")[0].trim().split(/\\s+/)[0] : "";
     const imageRaw =
-      $img.attr("src") ||
-      $img.attr("data-src") ||
-      $img.attr("data-lazy-src") ||
-      $img.attr("data-original") ||
-      $img.attr("data-image") ||
-      $img.attr("data-poster") ||
-      item.poster ||
-      item.image ||
-      item.image_url ||
-      srcsetUrl ||
-      "";
-    const image = abs(imageRaw, baseUrl);
+      item.poster || item.image || item.image_url ||
+      $img.attr("data-src") || $img.attr("data-lazy-src") ||
+      $img.attr("data-original") || $img.attr("data-image") ||
+      $img.attr("data-poster") || $img.attr("src") || srcsetUrl || "";
+    out.push({ title, link, image: abs(imageRaw, baseUrl), provider: "multimovies" });
+  };
 
-    out.push({
-      title,
-      link,
-      image,
-      provider: "multimovies",
-    });
+  $("article.poster-card, .poster-card, article.movie-card, .movie-card").each((_: number, el: any) => {
+    const $card = $(el);
+    const $anchor = $card.find("a.poster-art[href], a[href]").first();
+    const raw = $card.find("[data-save-title]").first().attr("data-save-title") ||
+      $card.attr("data-save-title") || "";
+    addCard($card, $anchor, raw ? parseJson(raw) : undefined);
   });
 
-  // Fallback in case the site changes its outer card tag but retains the
-  // same data-save-title JSON marker.
+  // Some site pages use different card wrappers or only expose the JSON marker.
   if (out.length === 0) {
     $("[data-save-title]").each((_: number, el: any) => {
       const $marker = $(el);
       const item = parseJson($marker.attr("data-save-title") || "");
       if (!item) return;
-
-      const title = String(item.title || "").trim();
-      const link = abs(item.url || "", baseUrl);
-      if (!title || !link || seen.has(link)) return;
-      seen.add(link);
-
       const $card = $marker.closest("article, .poster-card, .movie-card, .card");
-      const $img = $card.find("img").first();
-      const imageRaw =
-        $img.attr("src") ||
-        $img.attr("data-src") ||
-        $img.attr("data-lazy-src") ||
-        $img.attr("data-original") ||
-        item.poster ||
-        item.image ||
-        item.image_url ||
-        "";
-      out.push({
-        title,
-        link,
-        image: abs(imageRaw, baseUrl),
-        provider: "multimovies",
-      });
+      const $anchor = $card.find("a[href]").first();
+      addCard($card.length ? $card : $marker, $anchor, item);
+    });
+  }
+
+  // Last-resort support for poster cards without a known wrapper class.
+  if (out.length === 0) {
+    $("a.poster-art[href], article a[href]").each((_: number, el: any) => {
+      const $anchor = $(el);
+      const $card = $anchor.closest("article, .poster-card, .movie-card, .card");
+      if (!$card.length) return;
+      addCard($card, $anchor);
     });
   }
 
