@@ -101,7 +101,9 @@ function parseCards($: any, baseUrl: string): Post[] {
 
   // Fallback for redesigns with no recognizable card class: inspect linked images
   // and their nearest article/list/card container, keeping title and poster together.
-  if (!out.length) {
+  {
+    // Always scan linked images as well as card wrappers. Some pages expose only
+    // one recognized wrapper while the remaining posters use a different markup.
     $("a[href] img, a[href] [data-src], article img, .items img, img").each((_: number, el: any) => {
       const node = $(el);
       const scope = node.closest("article, li, .item, .card, .post, .result, a");
