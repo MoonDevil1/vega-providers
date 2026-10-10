@@ -36,80 +36,75 @@ function parseJson(raw: string): any {
 function parseCards($: any, baseUrl: string): Post[] {
   const out: Post[] = [];
   const seen = new Set<string>();
-  const addCard = ($card: any, $anchor: any, rawItem?: any) => {
-    const item = rawItem || {};
-    // Keep title, URL and artwork scoped to the same result card. The site's
-    // search layout uses .result-item; its archive uses article/.items cards.
-    const $titleLink = $card.find(
-      ".details .title a[href], .data h3 a[href], h2 a[href], h3 a[href], .entry-title a[href], a[rel='bookmark']"
-    ).first();
-    const $posterLink = $card.find(".image a[href], .poster a[href], a.poster-art[href]").first();
-    const $chosenAnchor = $titleLink.length ? $titleLink : ($anchor.length ? $anchor : $posterLink);
-    const $img = $card.find("div.image img, div.poster img, .poster img, .image img, img").first();
-    const $caption = $card.find(
-      ".details .title a, .details .title, .data h3 a, .entry-title a, .entry-title, h2 a, h2, h3 a, h3"
-    ).first();
-    const title = String(
-      item.title ||
-      $caption.text() ||
-      $chosenAnchor.attr("aria-label") ||
-      $chosenAnchor.attr("title") ||
-      $img.attr("alt") ||
-      $card.attr("data-title") ||
-      ""
-    ).replace(/\s+/g, " ").trim();
-    const link = abs(item.url || $titleLink.attr("href") || $chosenAnchor.attr("href") || $posterLink.attr("href") || "", baseUrl);
-    if (!title || !link || seen.has(link) || !/^https?:$/i.test(new URL(link).protocol)) return;
+  const selectors = [
+    ".result-item", ".items article", "#archive-content article",
+    "article.item", "article.poster-card", ".poster-card",
+    "article.movie-card", ".movie-card", ".card", ".post", ".result",
+    ".search-item", ".film", ".movie", ".flw-item", ".item"
+  ];
 
-    const srcset = $img.attr("data-srcset") || $img.attr("srcset") || "";
-    const srcsetUrl = srcset ? srcset.split(",")[0].trim().split(/\s+/)[0] : "";
-    const candidates = [
-      item.poster, item.image, item.image_url,
-      $img.attr("data-src"), $img.attr("data-lazy-src"), $img.attr("data-original"),
-      $img.attr("data-image"), $img.attr("data-poster"), $img.attr("data-lazy"),
-      $img.attr("src"), srcsetUrl
-    ];
-    const imageRaw = candidates.find((value) =>
-      typeof value === "string" &&
-      value.trim() &&
-      !/^(data:|about:blank|#)/i.test(value.trim()) &&
-      !/(placeholder|no[-_]?image|blank\.gif|transparent\.png)/i.test(value)
-    ) || "";
+  const add = (scope: any, rawItem?: any) => {
+    const item = rawItem || {};
+    const titleLink = scope.find(
+      ".details .title a[href], .data h3 a[href], .entry-title a[href], h2 a[href], h3 a[href], a[rel='bookmark'], a[href]"
+    ).filter((_: number, el: any) => {
+      const href = $(el).attr("href") || "";
+      return href && !/^(#|javascript:|mailto:)/i.test(href);
+    }).first();
+    const img = scope.find("img, source").first();
+    const caption = scope.find(".title, .name, .entry-title, h2, h3, [class*='title'], [class*='name']").first();
+    const title = String(
+      item.title || scope.attr("data-title") || scope.attr("title") ||
+      titleLink.attr("title") || titleLink.attr("aria-label") ||
+      caption.text() || img.attr("alt") || ""
+    ).replace(/\s+/g, " ").trim();
+    const href = abs(item.url || item.link || titleLink.attr("href") || "", baseUrl);
+    if (!title || !href || seen.has(href)) return;
+    let imageRaw = item.poster || item.image || item.image_url || item.thumbnail || "";
+    if (!imageRaw) {
+      for (const attr of ["data-src", "data-lazy-src", "data-original", "data-image", "data-poster", "data-lazy", "data-thumb", "src", "srcset", "data-srcset"]) {
+        const value = img.attr(attr);
+        if (typeof value === "string" && value.trim()) {
+          imageRaw = attr.includes("srcset") ? value.split(",")[0].trim().split(/\s+/)[0] : value;
+          if (!/^(data:|about:blank|#)/i.test(String(imageRaw)) &&
+              !/(placeholder|no[-_]?image|blank\.gif|transparent\.png)/i.test(String(imageRaw))) break;
+          imageRaw = "";
+        }
+      }
+    }
+    // A few themes store poster URLs on the card itself.
+    imageRaw = imageRaw || scope.attr("data-poster") || scope.attr("data-image") || "";
     const image = abs(imageRaw, baseUrl);
-    if (!image) return;
-    seen.add(link);
-    out.push({ title, link, image, provider: "multimovies" });
+    if (!image || !/^https?:$/i.test(new URL(image).protocol)) return;
+    if (!/^https?:$/i.test(new URL(href).protocol)) return;
+    seen.add(href);
+    out.push({ title, link: href, image, provider: "multimovies" });
   };
 
-  const cardSelectors = [
-    "div.result-item", ".items article", "#archive-content article",
-    "article.item", "article.poster-card", ".poster-card",
-    "article.movie-card", ".movie-card"
-  ];
-  $(cardSelectors.join(", ")).each((_: number, el: any) => {
-    const $card = $(el);
-    const raw = $card.find("[data-save-title]").first().attr("data-save-title") || $card.attr("data-save-title") || "";
-    const item = raw ? parseJson(raw) : undefined;
-    const $anchor = $card.find(
-      ".details .title a[href], .data h3 a[href], .image a[href], .poster a[href], a.poster-art[href], h2 a[href], h3 a[href], a[rel='bookmark']"
-    ).first();
-    addCard($card, $anchor, item);
+  $(selectors.join(", ")).each((_: number, el: any) => {
+    const scope = $(el);
+    // Avoid emitting nested wrappers for the same URL; dedupe is by post link.
+    const raw = scope.attr("data-save-title") || scope.find("[data-save-title]").first().attr("data-save-title") || "";
+    let item: any;
+    if (raw) {
+      try { item = JSON.parse(raw); } catch {}
+    }
+    add(scope, item);
   });
 
-  // Some versions expose JSON metadata instead of semantic cards.
-  if (out.length === 0) {
-    $("[data-save-title]").each((_: number, el: any) => {
-      const $marker = $(el);
-      const item = parseJson($marker.attr("data-save-title") || "");
-      if (!item) return;
-      const $card = $marker.closest("article, .result-item, .poster-card, .movie-card, .card");
-      const $scope = $card.length ? $card : $marker;
-      addCard($scope, $scope.find("a[href]").first(), item);
+  // Fallback for redesigns with no recognizable card class: inspect linked images
+  // and their nearest article/list/card container, keeping title and poster together.
+  if (!out.length) {
+    $("a[href] img, a[href] [data-src], article img, .items img, img").each((_: number, el: any) => {
+      const node = $(el);
+      const scope = node.closest("article, li, .item, .card, .post, .result, a");
+      if (!scope.length) return;
+      const parent = scope.is("a") ? scope : scope;
+      add(parent, undefined);
     });
   }
   return out;
 }
-
 function looksBlocked(html: string): boolean {
   const lower = html.toLowerCase();
   return ["cf-chl-", "challenge-platform", "checking your browser", "just a moment", "attention required", "ddos-guard"].some(s => lower.includes(s));
