@@ -118,6 +118,8 @@ function looksBlocked(html: string): boolean {
 let verificationInFlight: Promise<{ data: string; cookies: string; url: string } | null> | null = null;
 let verificationAttempted = false;
 const COOKIE_STORE_KEY = "multimovies.cloudflare.session";
+const VERIFY_COOLDOWN_KEY = "multimovies.cloudflare.verify-attempted-at";
+const VERIFY_COOLDOWN_MS = 10 * 60 * 1000;
 let cachedSession: { cookies: string; userAgent: string } | null = null;
 
 async function fetchHtml(url: string, providerContext: ProviderContext): Promise<string> {
@@ -149,8 +151,15 @@ async function fetchHtml(url: string, providerContext: ProviderContext): Promise
     console.warn("Multimovies direct request failed.", error);
   }
 
-  if (!verificationInFlight && !verificationAttempted) {
+  let recentVerificationAttempt = false;
+  try {
+    const attemptedAt = await kvStore.get<number>(VERIFY_COOLDOWN_KEY);
+    recentVerificationAttempt = typeof attemptedAt === "number" && Date.now() - attemptedAt < VERIFY_COOLDOWN_MS;
+  } catch {}
+
+  if (!verificationInFlight && !verificationAttempted && !recentVerificationAttempt) {
     verificationAttempted = true;
+    try { await kvStore.set(VERIFY_COOLDOWN_KEY, Date.now()); } catch {}
     verificationInFlight = (async () => {
       try {
         const result = await openWebView(url, {
