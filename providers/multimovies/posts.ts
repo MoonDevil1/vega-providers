@@ -131,40 +131,88 @@ function looksBlocked(html: string): boolean {
   );
 }
 
+// Share a single verification dialog across simultaneous Home/Search requests.
+// Vega may request several catalog sections at once; opening one WebView per section
+// causes the verification dialog to reopen every time the user taps Done.
+let verificationInFlight: Promise<{ data: string; cookies: string } | null> | null = null;
+const COOKIE_STORE_KEY = "multimovies.cloudflare.cookies";
+
 async function fetchHtml(
   url: string,
   providerContext: ProviderContext,
 ): Promise<string> {
-  const { axios, openWebView } = providerContext;
+  const { axios, openWebView, kvStore } = providerContext;
   let html = "";
+  let cookies = "";
 
   try {
-    const response = await axios.get(url, {
-      headers: REQUEST_HEADERS,
-      timeout: 20000,
-    });
-    html = typeof response.data === "string" ? response.data : "";
-    if (html && !looksBlocked(html)) return html;
-    console.warn("Multimovies returned a verification page; opening WebView fallback.");
-  } catch (error) {
-    console.warn("Multimovies direct request failed; trying WebView fallback.", error);
+    cookies = (await kvStore.get<string>(COOKIE_STORE_KEY)) || "";
+  } catch {
+    // Continue without a stored session if provider storage is unavailable.
   }
 
-  // Multimovies may return a Cloudflare browser challenge to plain HTTP clients.
-  // The WebView lets the user complete that check and returns the rendered HTML.
+  const request = async (cookieHeader: string) => {
+    const headers: Record<string, string> = { ...REQUEST_HEADERS };
+    if (cookieHeader) headers.Cookie = cookieHeader;
+    const response = await axios.get(url, { headers, timeout: 20000 });
+    return typeof response.data === "string" ? response.data : "";
+  };
+
   try {
-    const result = await openWebView(url, {
-      title: "Verify Multimovies",
-      description: "Complete the website verification if prompted, then return to Vega.",
-      headers: REQUEST_HEADERS,
-      waitForCookie: "cf_clearance",
-      force: true,
-      timeoutMs: 120000,
-    });
-    if (result?.data && !looksBlocked(result.data)) return result.data;
-    console.error("Multimovies WebView did not return a verified page.");
+    html = await request(cookies);
+    if (html && !looksBlocked(html)) return html;
+    console.warn("Multimovies returned a verification page.");
   } catch (error) {
-    console.error("Multimovies WebView fallback failed:", error);
+    console.warn("Multimovies direct request failed.", error);
+  }
+
+  // Try one shared WebView challenge for all concurrent catalog requests.
+  if (!verificationInFlight) {
+    verificationInFlight = (async () => {
+      try {
+        const result = await openWebView(url, {
+          title: "Verify Multimovies",
+          description: "Complete verification once. Vega will reuse the session for catalog and search requests.",
+          headers: REQUEST_HEADERS,
+          waitForCookie: "cf_clearance",
+          force: true,
+          timeoutMs: 120000,
+        });
+        if (!result?.data || looksBlocked(result.data)) return null;
+        const sessionCookies = result.cookies || "";
+        if (sessionCookies) {
+          try {
+            await kvStore.set(COOKIE_STORE_KEY, sessionCookies);
+          } catch (error) {
+            console.warn("Could not save Multimovies session cookies.", error);
+          }
+        }
+        return { data: result.data, cookies: sessionCookies };
+      } catch (error) {
+        console.error("Multimovies verification failed.", error);
+        return null;
+      } finally {
+        verificationInFlight = null;
+      }
+    })();
+  }
+
+  const verified = await verificationInFlight;
+  if (verified) {
+    // Use the WebView HTML for the URL being verified. For other simultaneous URLs,
+    // retry their own URL with the newly obtained cookies.
+    if (new URL(verified.data.match(/<base[^>]+href=["']([^"']+)/i)?.[1] || url, url).href === url) {
+      return verified.data;
+    }
+    if (verified.cookies) {
+      try {
+        const retried = await request(verified.cookies);
+        if (retried && !looksBlocked(retried)) return retried;
+      } catch (error) {
+        console.warn("Multimovies retry with verified session failed.", error);
+      }
+    }
+    return verified.data;
   }
 
   return html;
