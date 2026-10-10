@@ -1,30 +1,30 @@
-import { ProviderType } from '../types';
-import { catalog, genres } from './catalog';
-import { getPosts, getSearchPosts } from './posts';
-import { getMeta } from './meta';
-import { getStream } from './stream';
+import { ProviderType } from "../types";
+import { catalog, genres } from "./catalog";
+import { getPosts, getSearchPosts } from "./posts";
+import { getMeta } from "./meta";
+import { getEpisodeLinks } from "./episodes";
+import { getStream } from "./stream";
 
 const multimovies: ProviderType = {
   catalog,
-    genres,
+  genres,
 
-      GetHomePosts: async ({ filter, page, providerContext }) => {
-          return await getPosts({ filter, page, providerContext });
-                },
+  GetHomePosts: async ({ filter, page, signal, providerContext }) =>
+    getPosts({ filter, page, signal, providerContext }),
 
-                  GetSearchPosts: async ({ searchQuery, providerContext }) => {
-                      return await getSearchPosts({ searchQuery, providerContext });
-                            },
+  GetSearchPosts: async ({ searchQuery, page, signal, providerContext }) =>
+    getSearchPosts({ searchQuery, page, signal, providerContext }),
 
-                              GetMetaData: async ({ link, providerContext }) => {
-                                  return await getMeta({ link, providerContext });
-                                    },
+  GetMetaData: async ({ link, providerContext }) =>
+    getMeta({ link, providerContext }),
 
-                                      GetStream: async ({ link, type, providerContext }) => {
-                                          const { streams, subtitles } = await getStream({ link, type, providerContext });
-                                              // Attach subtitles to each stream so the app can display them
-                                                  return streams.map(s => ({ ...s, subtitles }));
-                                                    },
-                                                    };
+  GetEpisodeLinks: async ({ url, providerContext }) =>
+    getEpisodeLinks({ url, providerContext }),
 
-                                                    export default multimovies;
+  GetStream: async ({ link, type, providerContext }) => {
+    const { streams, subtitles } = await getStream({ link, type, providerContext });
+    return streams.map((stream) => ({ ...stream, subtitles }));
+  },
+};
+
+export default multimovies;
