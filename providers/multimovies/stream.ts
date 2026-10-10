@@ -4,22 +4,47 @@ import { Stream, TextTracks, ProviderContext } from "../types";
 const BASE_URL = "https://multimovies.garden";
 
 // Helper to parse the watch config (matches your Kotlin parseWatchConfig)
+function extractObject(html: string, marker: string): string {
+  const markerIndex = html.indexOf(marker);
+  if (markerIndex < 0) return "";
+  const start = html.indexOf("{", markerIndex + marker.length);
+  if (start < 0) return "";
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < html.length; i++) {
+    const ch = html[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\" && inString) { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (!inString && ch === "{") depth++;
+    if (!inString && ch === "}" && --depth === 0) return html.slice(start, i + 1);
+  }
+  return "";
+}
+
 function parseWatchConfig(html: string): { id: string; name: string; url: string }[] {
-    const servers: { id: string; name: string; url: string }[] = [];
-        const match = html.match(/const watchConfig = (\{[\s\S]*?\});/);
-            if (!match) return servers;
-                try {
-                        const config = JSON.parse(match[1]);
-                                if (config.initialServers) {
-                                            for (const s of config.initialServers) {
-                                                            if (s.url) servers.push({ id: s.id, name: s.name, url: s.url });
-                                                                        }
-                                                                                }
-                                                                                    } catch (e) {
-                                                                                            console.error("watchConfig parse error", e);
-                                                                                                }
-                                                                                                    return servers;
-                                                                                                    }
+  const servers: { id: string; name: string; url: string }[] = [];
+  const raw = extractObject(html, "const watchConfig = ");
+  if (!raw) return servers;
+  try {
+    const config = JSON.parse(raw);
+    if (Array.isArray(config.initialServers)) {
+      for (const server of config.initialServers) {
+        if (typeof server?.url === "string" && server.url.trim()) {
+          servers.push({
+            id: String(server.id || ""),
+            name: String(server.name || server.id || "Server"),
+            url: server.url,
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Multimovies watchConfig parse error", error);
+  }
+  return servers;
+}
 
                                                                                                     // Helper to extract IDs from server URLs (matches your Kotlin extractIds)
                                                                                                     function extractIds(servers: { url: string }[]): { tmdbId?: string; imdbId?: string } {
@@ -53,7 +78,15 @@ function parseWatchConfig(html: string): { id: string; name: string; url: string
 
                                                                                                                                                                                                                                                 try {
                                                                                                                                                                                                                                                         // 1. Fetch the watch page and parse the server list
-                                                                                                                                                                                                                                                                const { data: html } = await axios.get(link);
+                                                                                                                                                                                                                                                                const { data: html } = await axios.get(link, {
+        headers: {
+          ...providerContext.commonHeaders,
+          "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+          Referer: BASE_URL + "/",
+        },
+        timeout: 20000,
+        maxRedirects: 5,
+      });
                                                                                                                                                                                                                                                                         const servers = parseWatchConfig(html);
 
                                                                                                                                                                                                                                                                                 // 2. If no servers, fall back to a generic m3u8 grep on the page
