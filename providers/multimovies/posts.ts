@@ -162,25 +162,35 @@ async function fetchHtml(url: string, providerContext: ProviderContext): Promise
 
   try {
     html = await request(cookies, userAgent);
-    // Do not accept a 200 response just because it isn't a recognizable
-    // challenge page: the current site sometimes returns a shell without cards.
+    // A saved cookie jar that no longer produces catalog cards is stale. Clear
+    // it so the persisted prompt cooldown cannot strand the provider on a blank page.
     if (hasCatalogCards(html, providerContext)) return html;
+    if (cookies) {
+      cookies = "";
+      cachedSession = null;
+      try { await kvStore.set(COOKIE_STORE_KEY, { cookies: "", userAgent }); } catch {}
+    }
   } catch (error) {
     console.warn("Multimovies direct request failed.", error);
+    // A request error with a saved cookie jar should also allow a fresh verify.
+    if (cookies) {
+      cookies = "";
+      cachedSession = null;
+      try { await kvStore.set(COOKIE_STORE_KEY, { cookies: "", userAgent }); } catch {}
+    }
   }
 
-  // Persist the prompt cooldown because Vega may reload provider modules between
-  // category/search/page requests. Without this, each request can reopen WebView.
+  // The cooldown only suppresses another prompt while a reusable cookie session
+  // exists. If the session was rejected or expired, let the user verify again.
   let lastVerificationAt = 0;
   try {
     const stored = await kvStore.get<number>(VERIFY_COOLDOWN_KEY);
     if (typeof stored === "number") lastVerificationAt = stored;
   } catch {}
-  const cooldownActive = Date.now() - lastVerificationAt < VERIFY_COOLDOWN_MS;
+  const cooldownActive = Boolean(cookies) && Date.now() - lastVerificationAt < VERIFY_COOLDOWN_MS;
 
   if (!verificationInFlight && !verificationAttempted && !cooldownActive) {
     verificationAttempted = true;
-    try { await kvStore.set(VERIFY_COOLDOWN_KEY, Date.now()); } catch {}
     verificationInFlight = (async () => {
       try {
         const result = await openWebView(url, {
@@ -197,6 +207,9 @@ async function fetchHtml(url: string, providerContext: ProviderContext): Promise
         if (sessionCookies) {
           cachedSession = { cookies: sessionCookies, userAgent: sessionUserAgent };
           try { await kvStore.set(COOKIE_STORE_KEY, cachedSession); } catch (error) { console.warn("Could not save Multimovies session.", error); }
+          if (hasCatalogCards(result.data, providerContext)) {
+            try { await kvStore.set(VERIFY_COOLDOWN_KEY, Date.now()); } catch {}
+          }
         }
         return { data: result.data, cookies: sessionCookies, url };
       } catch (error) {
