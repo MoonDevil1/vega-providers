@@ -1,11 +1,11 @@
 [
-  {
-    "display_name": "EXAMPLE",
-    "value": "example",
-    "version": "1.0",
-    "icon": "",
-    "type": "global",
-    "hasSettings": true,
-    "disabled": false
-  }
+    {
+        "display_name": "Multimovies",
+            "value": "multimovies",
+                "version": "1.0",
+                    "icon": "https://multimovies.garden/assets/img/logo.png",
+                        "type": "global",
+                            "disabled": false
+                              }
+                              ]
 ]
