@@ -134,7 +134,7 @@ function looksBlocked(html: string): boolean {
 // Share a single verification dialog across simultaneous Home/Search requests.
 // Vega may request several catalog sections at once; opening one WebView per section
 // causes the verification dialog to reopen every time the user taps Done.
-let verificationInFlight: Promise<{ data: string; cookies: string } | null> | null = null;
+let verificationInFlight: Promise<{ data: string; cookies: string; url: string } | null> | null = null;
 const COOKIE_STORE_KEY = "multimovies.cloudflare.cookies";
 
 async function fetchHtml(
@@ -187,7 +187,7 @@ async function fetchHtml(
             console.warn("Could not save Multimovies session cookies.", error);
           }
         }
-        return { data: result.data, cookies: sessionCookies };
+        return { data: result.data, cookies: sessionCookies, url };
       } catch (error) {
         console.error("Multimovies verification failed.", error);
         return null;
@@ -201,9 +201,7 @@ async function fetchHtml(
   if (verified) {
     // Use the WebView HTML for the URL being verified. For other simultaneous URLs,
     // retry their own URL with the newly obtained cookies.
-    if (new URL(verified.data.match(/<base[^>]+href=["']([^"']+)/i)?.[1] || url, url).href === url) {
-      return verified.data;
-    }
+    if (verified.url === url) return verified.data;
     if (verified.cookies) {
       try {
         const retried = await request(verified.cookies);
