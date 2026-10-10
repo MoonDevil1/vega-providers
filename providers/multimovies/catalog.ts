@@ -1,25 +1,12 @@
-// Multimovies catalog routes mirrored from the working CloudStream provider.
+// Only use routes confirmed on multimovies.garden. Avoid fake category
+// paths that silently return the same archive for every Vega home section.
 export const catalog = [
-  { title: "Latest Movies", filter: "/movies/" },
-  { title: "Latest TV Shows", filter: "/movies/" },
-  { title: "Trending", filter: "/movies/" },
-  { title: "Bollywood", filter: "/movies/" },
-  { title: "Hollywood", filter: "/movies/" },
-  { title: "South Indian", filter: "/movies/" },
-  { title: "Netflix", filter: "/movies/" },
-  { title: "Jio Hotstar", filter: "/movies/" },
-  { title: "Anime Series", filter: "/movies/" },
-  { title: "Anime Movies", filter: "/movies/" },
+  { title: "Latest Updates", filter: "/" },
+  { title: "Hollywood", filter: "/genre/hollywood?sort=latest" },
+  { title: "Family", filter: "/genre/family" },
 ];
 
 export const genres = [
-  { title: "Latest Movies", filter: "/movies/" },
-  { title: "Latest TV Shows", filter: "/movies/" },
-  { title: "Trending", filter: "/movies/" },
-  { title: "Bollywood", filter: "/movies/" },
-  { title: "Hollywood", filter: "/movies/" },
-  { title: "South Indian", filter: "/movies/" },
-  { title: "Netflix", filter: "/movies/" },
-  { title: "Anime Series", filter: "/movies/" },
-  { title: "Anime Movies", filter: "/movies/" },
+  { title: "Hollywood", filter: "/genre/hollywood?sort=latest" },
+  { title: "Family", filter: "/genre/family" },
 ];
