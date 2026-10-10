@@ -166,13 +166,10 @@ async function fetchHtml(url: string, providerContext: ProviderContext): Promise
     console.warn("Multimovies direct request failed.", error);
   }
 
-  let recentVerificationAttempt = false;
-  try {
-    const attemptedAt = await kvStore.get<number>(VERIFY_COOLDOWN_KEY);
-    recentVerificationAttempt = typeof attemptedAt === "number" && Date.now() - attemptedAt < VERIFY_COOLDOWN_MS;
-  } catch {}
-
-  if (!verificationInFlight && !verificationAttempted && !recentVerificationAttempt) {
+  // Retry the WAF flow when a response contains no real catalog cards. A
+  // persisted cooldown must not suppress recovery forever after a failed solve.
+  // verificationAttempted still prevents repeated dialogs in this runtime.
+  if (!verificationInFlight && !verificationAttempted) {
     verificationAttempted = true;
     try { await kvStore.set(VERIFY_COOLDOWN_KEY, Date.now()); } catch {}
     verificationInFlight = (async () => {
