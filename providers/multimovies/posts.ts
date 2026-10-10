@@ -261,16 +261,22 @@ async function fetchPosts(
 
 export const getPosts = async function ({
   filter,
-  page,
+  page = 1,
   providerContext,
 }: {
-  filter: string;
-  page: number;
+  filter?: string;
+  page?: number;
   providerContext: ProviderContext;
-}): Promise<{ posts: Post[]; hasNext: boolean }> {
-  const url = new URL(filter || "/", BASE_URL);
-  if (page > 1) url.searchParams.set("page", String(page));
-  return fetchPosts(url.href, providerContext);
+}): Promise<Post[]> {
+  // The current Multimovies site uses route pages (trending, movies, series,
+  // genre/action), not the obsolete /catalog?type=... endpoint.
+  const route = (filter || "trending").replace(/^\\/+/, "").replace(/\\/+$/, "");
+  const path = page > 1
+    ? `/${route}/page/${page}/`
+    : `/${route}`;
+  const url = new URL(path, BASE_URL);
+  const result = await fetchPosts(url.href, providerContext);
+  return result.posts;
 };
 
 export const getSearchPosts = async function ({
@@ -279,9 +285,9 @@ export const getSearchPosts = async function ({
 }: {
   searchQuery: string;
   providerContext: ProviderContext;
-}): Promise<{ posts: Post[]; hasNext: boolean }> {
+}): Promise<Post[]> {
   const url = new URL("/search", BASE_URL);
   url.searchParams.set("q", searchQuery.trim());
   const result = await fetchPosts(url.href, providerContext);
-  return { ...result, hasNext: false };
+  return result.posts;
 };
