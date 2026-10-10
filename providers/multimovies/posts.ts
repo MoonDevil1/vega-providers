@@ -119,24 +119,79 @@ function parseCards($: any, baseUrl: string): Post[] {
   return out;
 }
 
-async function fetchPosts(
+function looksBlocked(html: string): boolean {
+  const lower = html.toLowerCase();
+  return (
+    lower.includes("cf-chl-") ||
+    lower.includes("challenge-platform") ||
+    lower.includes("checking your browser") ||
+    lower.includes("just a moment") ||
+    lower.includes("attention required") ||
+    lower.includes("ddos-guard")
+  );
+}
+
+async function fetchHtml(
   url: string,
   providerContext: ProviderContext,
-): Promise<{ posts: Post[]; hasNext: boolean }> {
-  const { axios, cheerio } = providerContext;
+): Promise<string> {
+  const { axios, openWebView } = providerContext;
+  let html = "";
+
   try {
     const response = await axios.get(url, {
       headers: REQUEST_HEADERS,
       timeout: 20000,
     });
-    const $ = cheerio.load(response.data);
+    html = typeof response.data === "string" ? response.data : "";
+    if (html && !looksBlocked(html)) return html;
+    console.warn("Multimovies returned a verification page; opening WebView fallback.");
+  } catch (error) {
+    console.warn("Multimovies direct request failed; trying WebView fallback.", error);
+  }
+
+  // Multimovies may return a Cloudflare browser challenge to plain HTTP clients.
+  // The WebView lets the user complete that check and returns the rendered HTML.
+  try {
+    const result = await openWebView(url, {
+      title: "Verify Multimovies",
+      description: "Complete the website verification if prompted, then return to Vega.",
+      headers: REQUEST_HEADERS,
+      waitForCookie: "cf_clearance",
+      force: true,
+      timeoutMs: 120000,
+    });
+    if (result?.data && !looksBlocked(result.data)) return result.data;
+    console.error("Multimovies WebView did not return a verified page.");
+  } catch (error) {
+    console.error("Multimovies WebView fallback failed:", error);
+  }
+
+  return html;
+}
+
+async function fetchPosts(
+  url: string,
+  providerContext: ProviderContext,
+): Promise<{ posts: Post[]; hasNext: boolean }> {
+  const { cheerio } = providerContext;
+  try {
+    const html = await fetchHtml(url, providerContext);
+    if (!html) return { posts: [], hasNext: false };
+
+    const $ = cheerio.load(html);
     const posts = parseCards($, url);
     const hasNext =
       $('a[rel="next"], .pagination a.next, a.next.page-numbers').length > 0;
-    console.log("Multimovies catalog:", url, "cards:", posts.length);
+    console.log("Multimovies catalog result:", {
+      url,
+      status: looksBlocked(html) ? "blocked" : "html received",
+      cards: posts.length,
+      htmlLength: html.length,
+    });
     return { posts, hasNext: hasNext && posts.length > 0 };
   } catch (error) {
-    console.error("Multimovies catalog request failed:", url, error);
+    console.error("Multimovies catalog parsing failed:", url, error);
     return { posts: [], hasNext: false };
   }
 }
