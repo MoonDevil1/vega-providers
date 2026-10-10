@@ -178,7 +178,14 @@ async function fetchHtml(
           timeoutMs: 120000,
         });
         if (!result?.data || looksBlocked(result.data)) return null;
-        const sessionCookies = result.cookies || "";
+        // Some Vega WebView builds populate cookieMap but leave the flattened
+        // cookies field empty. Persist both representations so the verified
+        // Cloudflare session is not silently discarded.
+        const sessionCookies =
+          result.cookies ||
+          Object.entries(result.cookieMap || {})
+            .map(([name, value]) => `${name}=${value}`)
+            .join("; ");
         const sessionUserAgent = result.userAgent || REQUEST_HEADERS["User-Agent"];
         if (sessionCookies) {
           cachedSession = { cookies: sessionCookies, userAgent: sessionUserAgent };
