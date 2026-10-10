@@ -22,7 +22,9 @@ function parseEpisodes($: any, pageUrlValue: string): EpisodeLink[] {
     const match = String(card.attr("id") || "").match(/ep-item-(\d+)-(\d+)/);
     const href = card.find("a.cinejoy-ep-thumb-link").attr("href") ||
       card.find("a[href]").first().attr("href");
-    if (!href) return;
+    // Episode IDs encode both season and episode. Ignore unrelated/repeated
+    // cards that have no ID; they were the source of the unlabelled duplicates.
+    if (!match || !href) return;
     const link = new URL(href, pageUrlValue).href;
     const season = match ? Number(match[1]) : undefined;
     const episode = match ? Number(match[2]) : undefined;
@@ -69,6 +71,7 @@ export async function getEpisodeLinks({
       Number(first.$(".cinejoy-season-pill-dropdown select").val()) ||
       seasons[0] || 1;
     const ranges = (doc: any) => doc("select.episode-range-select option")
+      .filter((_: number, el: any) => !doc(el).attr("selected"))
       .map((_: number, el: any) => Number(doc(el).attr("value")))
       .get()
       .filter((n: number) => Number.isInteger(n) && n > 0);
