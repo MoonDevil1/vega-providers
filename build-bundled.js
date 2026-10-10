@@ -141,6 +141,7 @@ async function buildProvider(providerName) {
         `✓ ${providerName}/${moduleName}.js (${(code.length / 1024).toFixed(1)}kb)`,
       );
     } catch (error) {
+      buildErrors++;
       console.error(
         `✗ Error building ${providerName}/${moduleName}:`,
         error.message,
@@ -220,6 +221,10 @@ async function buildAll() {
     `\n✓ Built ${totalModules} modules from ${providerDirs.length} providers in ${((endTime - startTime) / 1000).toFixed(2)}s`,
   );
   console.log(`  Total size: ${(totalSize / 1024).toFixed(1)}kb`);
+  if (buildErrors > 0) {
+    console.error(`Build failed: ${buildErrors} module(s) could not be built.`);
+    process.exitCode = 1;
+  }
 }
 
 buildAll().catch((error) => {
