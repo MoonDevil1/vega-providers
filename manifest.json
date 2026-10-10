@@ -1,11 +1,12 @@
 [
-    {
-        "display_name": "Multimovies",
-            "value": "multimovies",
-                "version": "1.0",
-                    "icon": "https://multimovies.garden/assets/img/logo.png",
-                        "type": "global",
-                            "disabled": false
-                              }
-                              ]
+      {
+          "name": "Multimovies",
+              "display_name": "Multimovies",
+                  "value": "multimovies",
+                      "version": "1.0.0",
+                          "icon": "https://multimovies.garden/assets/img/logo.png",
+                              "type": "global",
+                                  "disabled": false
+                                    }
+                                    ]
 ]
