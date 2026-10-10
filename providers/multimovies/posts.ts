@@ -59,13 +59,13 @@ function parseCards($: any, baseUrl: string): Post[] {
       $caption.text() ||
       $card.attr("aria-label") ||
       "",
-    ).replace(/\\s+/g, " ").trim();
+    ).replace(/\s+/g, " ").trim();
     const link = abs(item.url || $anchor.attr("href") || $card.find("a[href]").first().attr("href") || "", baseUrl);
     if (!title || !link || seen.has(link)) return;
     seen.add(link);
 
     const srcset = $img.attr("srcset") || $img.attr("data-srcset") || "";
-    const srcsetUrl = srcset ? srcset.split(",")[0].trim().split(/\\s+/)[0] : "";
+    const srcsetUrl = srcset ? srcset.split(",")[0].trim().split(/\s+/)[0] : "";
     const imageRaw =
       item.poster || item.image || item.image_url ||
       $img.attr("data-src") || $img.attr("data-lazy-src") ||
