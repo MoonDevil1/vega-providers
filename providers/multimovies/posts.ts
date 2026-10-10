@@ -169,10 +169,16 @@ async function fetchHtml(url: string, providerContext: ProviderContext): Promise
     console.warn("Multimovies direct request failed.", error);
   }
 
-  // Retry the WAF flow when a response contains no real catalog cards. A
-  // persisted cooldown must not suppress recovery forever after a failed solve.
-  // verificationAttempted still prevents repeated dialogs in this runtime.
-  if (!verificationInFlight && !verificationAttempted) {
+  // Persist the prompt cooldown because Vega may reload provider modules between
+  // category/search/page requests. Without this, each request can reopen WebView.
+  let lastVerificationAt = 0;
+  try {
+    const stored = await kvStore.get<number>(VERIFY_COOLDOWN_KEY);
+    if (typeof stored === "number") lastVerificationAt = stored;
+  } catch {}
+  const cooldownActive = Date.now() - lastVerificationAt < VERIFY_COOLDOWN_MS;
+
+  if (!verificationInFlight && !verificationAttempted && !cooldownActive) {
     verificationAttempted = true;
     try { await kvStore.set(VERIFY_COOLDOWN_KEY, Date.now()); } catch {}
     verificationInFlight = (async () => {
