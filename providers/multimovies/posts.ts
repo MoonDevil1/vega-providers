@@ -39,7 +39,7 @@ function parseCards($: any, baseUrl: string): Post[] {
   const addCard = ($card: any, $anchor: any, rawItem?: any) => {
     const item = rawItem || {};
     const $img = $anchor.find("img").first().length ? $anchor.find("img").first() : $card.find("img").first();
-    const $caption = $card.find(".poster-caption, .entry-title, .post-title, .title, h2, h3").first();
+    const $caption = $card.find(".data h3 a, .details .title a, .poster-caption, .entry-title, .post-title, .title, h2, h3").first();
     const title = String(item.title || $caption.text() || $anchor.attr("aria-label") || $anchor.attr("title") || $img.attr("alt") || $card.attr("aria-label") || "")
       .replace(/\s+/g, " ").trim();
     const link = abs(item.url || $anchor.attr("href") || $card.find("a[href]").first().attr("href") || "", baseUrl);
@@ -49,13 +49,13 @@ function parseCards($: any, baseUrl: string): Post[] {
     const srcsetUrl = srcset ? srcset.split(",")[0].trim().split(/\s+/)[0] : "";
     const imageRaw = item.poster || item.image || item.image_url ||
       $img.attr("data-src") || $img.attr("data-lazy-src") || $img.attr("data-original") ||
-      $img.attr("data-image") || $img.attr("data-poster") || $img.attr("src") || srcsetUrl || "";
+      $img.attr("data-image") || $img.attr("data-poster") || $img.attr("data-lazy") || $img.attr("src") || srcsetUrl || "";
     out.push({ title, link, image: abs(imageRaw, baseUrl), provider: "multimovies" });
   };
 
-  $("article.poster-card, .poster-card, article.movie-card, .movie-card").each((_: number, el: any) => {
+  $(".items article, #archive-content article, article.item, div.result-item, article.poster-card, .poster-card, article.movie-card, .movie-card").each((_: number, el: any) => {
     const $card = $(el);
-    const $anchor = $card.find("a.poster-art[href], a[href]").first();
+    const $anchor = $card.find(".data h3 a[href], .details .title a[href], .poster a[href], .image a[href], a.poster-art[href], a[href]").first();
     const raw = $card.find("[data-save-title]").first().attr("data-save-title") || $card.attr("data-save-title") || "";
     addCard($card, $anchor, raw ? parseJson(raw) : undefined);
   });
@@ -65,16 +65,16 @@ function parseCards($: any, baseUrl: string): Post[] {
       const $marker = $(el);
       const item = parseJson($marker.attr("data-save-title") || "");
       if (!item) return;
-      const $card = $marker.closest("article, .poster-card, .movie-card, .card");
+      const $card = $marker.closest("article, .result-item, .poster-card, .movie-card, .card");
       const $anchor = $card.find("a[href]").first();
       addCard($card.length ? $card : $marker, $anchor, item);
     });
   }
 
   if (out.length === 0) {
-    $("a.poster-art[href], article a[href]").each((_: number, el: any) => {
+    $(".items article a[href], #archive-content article a[href], .result-item a[href], article.item a[href], a.poster-art[href], article a[href]").each((_: number, el: any) => {
       const $anchor = $(el);
-      const $card = $anchor.closest("article, .poster-card, .movie-card, .card");
+      const $card = $anchor.closest("article, .result-item, .poster-card, .movie-card, .card");
       if ($card.length) addCard($card, $anchor);
     });
   }
@@ -171,7 +171,7 @@ async function fetchPosts(url: string, providerContext: ProviderContext): Promis
 }
 
 function buildCatalogUrl(filter: string | undefined, page: number): string {
-  const route = filter || "/catalog?sort=rating";
+  const route = filter || "/movies/";
   const url = new URL(route, BASE_URL);
   if (page > 1) url.searchParams.set("page", String(page));
   return url.href;
@@ -206,8 +206,8 @@ export const getSearchPosts = async function ({
   providerValue?: string;
   providerContext: ProviderContext;
 }): Promise<Post[]> {
-  const url = new URL("/search", BASE_URL);
-  url.searchParams.set("q", searchQuery.trim());
+  const url = new URL("/", BASE_URL);
+  url.searchParams.set("s", searchQuery.trim());
   if (page > 1) url.searchParams.set("page", String(page));
   const result = await fetchPosts(url.href, providerContext);
   return result.posts;
