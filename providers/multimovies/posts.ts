@@ -270,7 +270,7 @@ export const getPosts = async function ({
 }): Promise<Post[]> {
   // The current Multimovies site uses route pages (trending, movies, series,
   // genre/action), not the obsolete /catalog?type=... endpoint.
-  const route = (filter || "trending").replace(/^\\/+/, "").replace(/\\/+$/, "");
+  const route = (filter || "trending").replace(/^\/+/, "").replace(/\/+$/, "");
   const path = page > 1
     ? `/${route}/page/${page}/`
     : `/${route}`;
