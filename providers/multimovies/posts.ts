@@ -38,44 +38,73 @@ function parseCards($: any, baseUrl: string): Post[] {
   const seen = new Set<string>();
   const addCard = ($card: any, $anchor: any, rawItem?: any) => {
     const item = rawItem || {};
-    const $img = $anchor.find("img").first().length ? $anchor.find("img").first() : $card.find("img").first();
-    const $caption = $card.find(".data h3 a, .details .title a, .poster-caption, .entry-title, .post-title, .title, h2, h3").first();
-    const title = String(item.title || $caption.text() || $anchor.attr("aria-label") || $anchor.attr("title") || $img.attr("alt") || $card.attr("aria-label") || "")
-      .replace(/\s+/g, " ").trim();
-    const link = abs(item.url || $anchor.attr("href") || $card.find("a[href]").first().attr("href") || "", baseUrl);
-    if (!title || !link || seen.has(link)) return;
+    // Keep title, URL and artwork scoped to the same result card. The site's
+    // search layout uses .result-item; its archive uses article/.items cards.
+    const $titleLink = $card.find(
+      ".details .title a[href], .data h3 a[href], h2 a[href], h3 a[href], .entry-title a[href], a[rel='bookmark']"
+    ).first();
+    const $posterLink = $card.find(".image a[href], .poster a[href], a.poster-art[href]").first();
+    const $chosenAnchor = $titleLink.length ? $titleLink : ($anchor.length ? $anchor : $posterLink);
+    const $img = $card.find("div.image img, div.poster img, .poster img, .image img, img").first();
+    const $caption = $card.find(
+      ".details .title a, .details .title, .data h3 a, .entry-title a, .entry-title, h2 a, h2, h3 a, h3"
+    ).first();
+    const title = String(
+      item.title ||
+      $caption.text() ||
+      $chosenAnchor.attr("aria-label") ||
+      $chosenAnchor.attr("title") ||
+      $img.attr("alt") ||
+      $card.attr("data-title") ||
+      ""
+    ).replace(/\\s+/g, " ").trim();
+    const link = abs(item.url || $titleLink.attr("href") || $chosenAnchor.attr("href") || $posterLink.attr("href") || "", baseUrl);
+    if (!title || !link || seen.has(link) || !/^https?:$/i.test(new URL(link).protocol)) return;
+
+    const srcset = $img.attr("data-srcset") || $img.attr("srcset") || "";
+    const srcsetUrl = srcset ? srcset.split(",")[0].trim().split(/\\s+/)[0] : "";
+    const candidates = [
+      item.poster, item.image, item.image_url,
+      $img.attr("data-src"), $img.attr("data-lazy-src"), $img.attr("data-original"),
+      $img.attr("data-image"), $img.attr("data-poster"), $img.attr("data-lazy"),
+      $img.attr("src"), srcsetUrl
+    ];
+    const imageRaw = candidates.find((value) =>
+      typeof value === "string" &&
+      value.trim() &&
+      !/^(data:|about:blank|#)/i.test(value.trim()) &&
+      !/(placeholder|no[-_]?image|blank\.gif|transparent\.png)/i.test(value)
+    ) || "";
+    const image = abs(imageRaw, baseUrl);
+    if (!image) return;
     seen.add(link);
-    const srcset = $img.attr("srcset") || $img.attr("data-srcset") || "";
-    const srcsetUrl = srcset ? srcset.split(",")[0].trim().split(/\s+/)[0] : "";
-    const imageRaw = item.poster || item.image || item.image_url ||
-      $img.attr("data-src") || $img.attr("data-lazy-src") || $img.attr("data-original") ||
-      $img.attr("data-image") || $img.attr("data-poster") || $img.attr("data-lazy") || $img.attr("src") || srcsetUrl || "";
-    out.push({ title, link, image: abs(imageRaw, baseUrl), provider: "multimovies" });
+    out.push({ title, link, image, provider: "multimovies" });
   };
 
-  $(".items article, #archive-content article, article.item, div.result-item, article.poster-card, .poster-card, article.movie-card, .movie-card").each((_: number, el: any) => {
+  const cardSelectors = [
+    "div.result-item", ".items article", "#archive-content article",
+    "article.item", "article.poster-card", ".poster-card",
+    "article.movie-card", ".movie-card"
+  ];
+  $(cardSelectors.join(", ")).each((_: number, el: any) => {
     const $card = $(el);
-    const $anchor = $card.find(".data h3 a[href], .details .title a[href], .poster a[href], .image a[href], a.poster-art[href], a[href]").first();
     const raw = $card.find("[data-save-title]").first().attr("data-save-title") || $card.attr("data-save-title") || "";
-    addCard($card, $anchor, raw ? parseJson(raw) : undefined);
+    const item = raw ? parseJson(raw) : undefined;
+    const $anchor = $card.find(
+      ".details .title a[href], .data h3 a[href], .image a[href], .poster a[href], a.poster-art[href], h2 a[href], h3 a[href], a[rel='bookmark']"
+    ).first();
+    addCard($card, $anchor, item);
   });
 
+  // Some versions expose JSON metadata instead of semantic cards.
   if (out.length === 0) {
     $("[data-save-title]").each((_: number, el: any) => {
       const $marker = $(el);
       const item = parseJson($marker.attr("data-save-title") || "");
       if (!item) return;
       const $card = $marker.closest("article, .result-item, .poster-card, .movie-card, .card");
-      const $anchor = $card.find("a[href]").first();
-      addCard($card.length ? $card : $marker, $anchor, item);
-    });
-  }
-
-  if (out.length === 0) {
-    $(".items article a[href], #archive-content article a[href], .result-item a[href], article.item a[href], a.poster-art[href], article a[href]").each((_: number, el: any) => {
-      const $anchor = $(el);
-      const $card = $anchor.closest("article, .result-item, .poster-card, .movie-card, .card");
-      if ($card.length) addCard($card, $anchor);
+      const $scope = $card.length ? $card : $marker;
+      addCard($scope, $scope.find("a[href]").first(), item);
     });
   }
   return out;
@@ -86,7 +115,7 @@ function looksBlocked(html: string): boolean {
   return ["cf-chl-", "challenge-platform", "checking your browser", "just a moment", "attention required", "ddos-guard"].some(s => lower.includes(s));
 }
 
-let verificationInFlight: Promise<{ data: string; cookies: string; url: string } | null> | null = null;
+let verificationInFlight: Promise<{ data: string; cookies: string; url: string } | null> | null = null;\nlet verificationAttempted = false;
 const COOKIE_STORE_KEY = "multimovies.cloudflare.session";
 let cachedSession: { cookies: string; userAgent: string } | null = null;
 
