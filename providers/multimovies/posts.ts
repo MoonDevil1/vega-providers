@@ -75,7 +75,7 @@ function parseCards($: any, baseUrl: string): Post[] {
     // A few themes store poster URLs on the card itself.
     imageRaw = imageRaw || scope.attr("data-poster") || scope.attr("data-image") || scope.attr("data-src") || "";
     if (!imageRaw) {
-      const styled = String(scope.attr("style") || "").match(/background-image\\s*:\\s*url\\([\'"]?([^\'")]+)[\'"]?\\)/i);
+      const styled = String(scope.attr("style") || "").match(/background-image\s*:\s*url\(\s*['"]?([^'")]+)['"]?\s*\)/i);
       if (styled?.[1]) imageRaw = styled[1];
     }
     const image = abs(imageRaw, baseUrl);
