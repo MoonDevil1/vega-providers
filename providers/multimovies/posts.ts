@@ -121,73 +121,34 @@ const COOKIE_STORE_KEY = "multimovies.cloudflare.session";
 let cachedSession: { cookies: string; userAgent: string } | null = null;
 
 async function fetchHtml(url: string, providerContext: ProviderContext): Promise<string> {
-  const { axios, openWebView, kvStore } = providerContext;
-  let html = "";
-  let cookies = "";
-  let userAgent = REQUEST_HEADERS["User-Agent"];
+  const { axios, kvStore } = providerContext;
+  const headers: Record<string, string> = { ...REQUEST_HEADERS };
+
+  // Use static HTTP only. Opening a WebView for every blocked catalog/search
+  // request caused the verification mini-window to appear and its HTML could
+  // be mistaken for the requested page. Never parse a challenge page as posts.
   try {
     const saved = await kvStore.get<{ cookies?: string; userAgent?: string }>(COOKIE_STORE_KEY);
-    if (saved && typeof saved === "object") {
-      cookies = saved.cookies || "";
-      userAgent = saved.userAgent || userAgent;
-      if (cookies) cachedSession = { cookies, userAgent };
-    }
+    if (saved?.cookies) headers.Cookie = saved.cookies;
+    if (saved?.userAgent) headers["User-Agent"] = saved.userAgent;
   } catch {}
-  if (cachedSession) ({ cookies, userAgent } = cachedSession);
-
-  const request = async (cookieHeader: string, agent: string) => {
-    const headers: Record<string, string> = { ...REQUEST_HEADERS, "User-Agent": agent };
-    if (cookieHeader) headers.Cookie = cookieHeader;
-    const response = await axios.get(url, { headers, timeout: 20000, maxRedirects: 5 });
-    return typeof response.data === "string" ? response.data : "";
-  };
 
   try {
-    html = await request(cookies, userAgent);
-    if (html && !looksBlocked(html)) return html;
-  } catch (error) {
-    console.warn("Multimovies direct request failed.", error);
-  }
-
-  if (!verificationInFlight) {
-    verificationInFlight = (async () => {
-      try {
-        const result = await openWebView(url, {
-          title: "Verify Multimovies",
-          description: "Complete verification once. Vega will reuse the session for catalog and search requests.",
-          headers: REQUEST_HEADERS,
-          waitForCookie: "cf_clearance",
-          force: true,
-          timeoutMs: 120000,
-        });
-        if (!result?.data || looksBlocked(result.data)) return null;
-        const sessionCookies = result.cookies || Object.entries(result.cookieMap || {}).map(([name, value]) => `${name}=${value}`).join("; ");
-        const sessionUserAgent = result.userAgent || REQUEST_HEADERS["User-Agent"];
-        if (sessionCookies) {
-          cachedSession = { cookies: sessionCookies, userAgent: sessionUserAgent };
-          try { await kvStore.set(COOKIE_STORE_KEY, cachedSession); } catch (error) { console.warn("Could not save Multimovies session.", error); }
-        }
-        return { data: result.data, cookies: sessionCookies, url };
-      } catch (error) {
-        console.error("Multimovies verification failed.", error);
-        return null;
-      } finally {
-        verificationInFlight = null;
-      }
-    })();
-  }
-
-  const verified = await verificationInFlight;
-  if (verified) {
-    if (verified.cookies) {
-      try {
-        const retried = await request(verified.cookies, cachedSession?.userAgent || REQUEST_HEADERS["User-Agent"]);
-        if (retried && !looksBlocked(retried)) return retried;
-      } catch (error) { console.warn("Multimovies retry with verified session failed.", error); }
+    const response = await axios.get(url, {
+      headers,
+      timeout: 20000,
+      maxRedirects: 5,
+    });
+    const html = typeof response.data === "string" ? response.data : "";
+    if (!html || looksBlocked(html)) {
+      console.warn("Multimovies returned an empty page or verification challenge; skipping parse.", url);
+      return "";
     }
-    if (verified.url === url && verified.data && !looksBlocked(verified.data)) return verified.data;
+    return html;
+  } catch (error) {
+    console.warn("Multimovies static request failed.", url, error);
+    return "";
   }
-  return html && !looksBlocked(html) ? html : "";
 }
 
 async function fetchPosts(url: string, providerContext: ProviderContext): Promise<{ posts: Post[]; hasNext: boolean }> {
