@@ -57,12 +57,12 @@ function parseCards($: any, baseUrl: string): Post[] {
       $img.attr("alt") ||
       $card.attr("data-title") ||
       ""
-    ).replace(/\\s+/g, " ").trim();
+    ).replace(/\s+/g, " ").trim();
     const link = abs(item.url || $titleLink.attr("href") || $chosenAnchor.attr("href") || $posterLink.attr("href") || "", baseUrl);
     if (!title || !link || seen.has(link) || !/^https?:$/i.test(new URL(link).protocol)) return;
 
     const srcset = $img.attr("data-srcset") || $img.attr("srcset") || "";
-    const srcsetUrl = srcset ? srcset.split(",")[0].trim().split(/\\s+/)[0] : "";
+    const srcsetUrl = srcset ? srcset.split(",")[0].trim().split(/\s+/)[0] : "";
     const candidates = [
       item.poster, item.image, item.image_url,
       $img.attr("data-src"), $img.attr("data-lazy-src"), $img.attr("data-original"),
