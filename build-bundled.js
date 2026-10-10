@@ -18,6 +18,7 @@ const providerDirs = fs
   .map((dirent) => dirent.name);
 
 console.log(`Found ${providerDirs.length} providers to build`);
+let buildErrors = 0;
 
 async function buildProvider(providerName) {
   const providerPath = path.join(providersDir, providerName);
@@ -183,6 +184,7 @@ async function buildUtilityFiles() {
 
       console.log(`✓ ${utilityName}.js (${(code.length / 1024).toFixed(1)}kb)`);
     } catch (error) {
+      buildErrors++;
       console.error(`✗ Error building ${utilityName}:`, error.message);
     }
   }
