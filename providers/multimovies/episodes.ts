@@ -51,3 +51,16 @@ export async function getEpisodeLinks({
     return [];
   }
 }
+
+
+// Vega's modular provider loader calls the "getEpisodes" export.
+// Keep the existing parser implementation and expose the expected contract.
+export async function getEpisodes({
+  url,
+  providerContext,
+}: {
+  url: string;
+  providerContext: ProviderContext;
+}): Promise<EpisodeLink[]> {
+  return getEpisodeLinks({ url, providerContext });
+}
