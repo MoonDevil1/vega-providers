@@ -9,8 +9,7 @@ const multimovies: ProviderType = {
     genres,
 
       GetHomePosts: async ({ filter, page, providerContext }) => {
-          const { posts } = await getPosts({ filter, page, providerContext });
-              return posts;
+          return await getPosts({ filter, page, providerContext });
                 },
 
                   GetSearchPosts: async ({ searchQuery, providerContext }) => {
