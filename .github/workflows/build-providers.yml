@@ -3,6 +3,8 @@ name: Build and test providers
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'dist/**'
   workflow_dispatch:
 
 concurrency:
