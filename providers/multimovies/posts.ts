@@ -214,22 +214,20 @@ async function fetchHtml(url: string, providerContext: ProviderContext): Promise
 
   try {
     html = await request(cookies, userAgent);
-    // A saved cookie jar that no longer produces catalog cards is stale. Clear
-    // it so the persisted prompt cooldown cannot strand the provider on a blank page.
-    if (hasCatalogCards(html, providerContext, url)) return html;
-    if (cookies) {
+
+    // Do not equate "no cards parsed" with an expired session. Catalog filters,
+    // search pages, and site redesigns can legitimately return a different DOM.
+    // Only discard the stored cookie when the response clearly is a challenge.
+    if (html && !looksBlocked(html)) return html;
+    if (cookies && looksBlocked(html)) {
       cookies = "";
       cachedSession = null;
       try { await kvStore.set(COOKIE_STORE_KEY, { cookies: "", userAgent }); } catch {}
     }
   } catch (error) {
+    // Preserve a potentially valid session on transient network errors. Clearing
+    // it here made every category/search request trigger the verification dialog.
     console.warn("Multimovies direct request failed.", error);
-    // A request error with a saved cookie jar should also allow a fresh verify.
-    if (cookies) {
-      cookies = "";
-      cachedSession = null;
-      try { await kvStore.set(COOKIE_STORE_KEY, { cookies: "", userAgent }); } catch {}
-    }
   }
 
   // The cooldown only suppresses another prompt while a reusable cookie session
@@ -259,7 +257,9 @@ async function fetchHtml(url: string, providerContext: ProviderContext): Promise
         if (sessionCookies) {
           cachedSession = { cookies: sessionCookies, userAgent: sessionUserAgent };
           try { await kvStore.set(COOKIE_STORE_KEY, cachedSession); } catch (error) { console.warn("Could not save Multimovies session.", error); }
-          if (hasCatalogCards(result.data, providerContext, url)) {
+          // Persist the verification cooldown for any successful non-challenge
+          // page, not only pages whose cards match our current CSS selectors.
+          if (result.data && !looksBlocked(result.data)) {
             try { await kvStore.set(VERIFY_COOLDOWN_KEY, Date.now()); } catch {}
           }
         }
