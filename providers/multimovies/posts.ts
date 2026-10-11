@@ -36,80 +36,133 @@ function parseJson(raw: string): any {
 function parseCards($: any, baseUrl: string): Post[] {
   const out: Post[] = [];
   const seen = new Set<string>();
-  // The current site uses article.poster-card with a JSON payload in data-save-title.
-  // Keep older theme selectors as a fallback for pages that still use them.
-  const selectors = [
-    // Prefer the site's serialized card payload wherever the redesign places it.
-    "[data-save-title]", "article.poster-card", ".poster-card",
-    ".result-item", ".items article", "#archive-content article",
-    "article.item", "article.movie-card", ".movie-card",
-    ".search-item", ".flw-item"
+  const cardSelector = "article, li, .poster-card, .movie-card, .movie-item, .film-item, .flw-item, .result-item, .item, .card, .post, .search-item";
+  const imageAttrs = [
+    "data-src", "data-lazy-src", "data-original", "data-image",
+    "data-poster", "data-poster-url", "data-lazy", "data-thumb",
+    "data-cover", "data-url", "src", "srcset", "data-srcset"
   ];
 
+  const parsePayload = (raw: string): any => {
+    if (!raw) return {};
+    const candidates = [raw, raw.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&")];
+    for (const candidate of candidates) {
+      try {
+        const parsed = JSON.parse(candidate);
+        if (parsed && typeof parsed === "object") return parsed;
+      } catch {}
+    }
+    return {};
+  };
+
+  const firstString = (...values: unknown[]): string => {
+    for (const value of values) {
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return "";
+  };
+
   const add = (scope: any, rawItem?: any) => {
+    if (!scope || !scope.length) return;
     const item = rawItem || {};
     const titleLink = (scope.is("a[href]") ? scope : scope.find(
-      ".details .title a[href], .data h3 a[href], .entry-title a[href], h2 a[href], h3 a[href], a[rel='bookmark'], a[href]"
+      ".details .title a[href], .data h3 a[href], .entry-title a[href], h1 a[href], h2 a[href], h3 a[href], .title a[href], a[rel='bookmark'], a[href]"
     )).filter((_: number, el: any) => {
-      const href = $(el).attr("href") || "";
-      return href && !/^(#|javascript:|mailto:)/i.test(href);
+      const href = String($(el).attr("href") || "");
+      return href && !/^(#|javascript:|mailto:|tel:)/i.test(href);
     }).first();
-    const img = (scope.is("img, source") ? scope : scope.find("picture img, img, source")).first();
-    const caption = scope.find(".title, .name, .entry-title, h2, h3, [class*='title'], [class*='name']").first();
-    const title = String(
-      item.title || scope.attr("data-title") || scope.attr("title") ||
-      titleLink.attr("title") || titleLink.attr("aria-label") ||
-      caption.text() || img.attr("alt") || ""
-    ).replace(/\s+/g, " ").trim();
-    const href = abs(item.url || item.link || titleLink.attr("href") || "", baseUrl);
+
+    const img = scope.is("img, source") ? scope : scope.find("picture img, picture source, img, source").first();
+    const caption = scope.find(".title, .name, .entry-title, h1, h2, h3, [class*='title'], [class*='name']").first();
+    const title = firstString(
+      item.title, item.name, item.label, item.movie_title,
+      scope.attr("data-title"), scope.attr("title"),
+      titleLink.attr("title"), titleLink.attr("aria-label"),
+      caption.text(), img.attr("alt")
+    ).replace(/\s+/g, " ");
+
+    const rawHref = firstString(
+      item.url, item.link, item.href, item.detail_url, item.detailUrl,
+      titleLink.attr("href"), scope.attr("data-href"), scope.attr("data-url")
+    );
+    const href = abs(rawHref, baseUrl);
     if (!title || !href || seen.has(href)) return;
-    let imageRaw = item.poster || item.image || item.image_url || item.thumbnail || "";
+
+    let imageRaw = firstString(
+      item.poster, item.poster_url, item.posterUrl, item.image, item.image_url,
+      item.imageUrl, item.thumbnail, item.thumbnail_url, item.thumb,
+      item.cover, item.cover_url, item.backdrop, item.src
+    );
+
     if (!imageRaw) {
-      for (const attr of ["data-src", "data-lazy-src", "data-original", "data-image", "data-poster", "data-lazy", "data-thumb", "src", "srcset", "data-srcset"]) {
+      for (const attr of imageAttrs) {
         const value = img.attr(attr);
-        if (typeof value === "string" && value.trim()) {
-          imageRaw = attr.includes("srcset") ? value.split(",")[0].trim().split(/\s+/)[0] : value;
-          if (!/^(data:|about:blank|#)/i.test(String(imageRaw)) &&
-              !/(placeholder|no[-_]?image|blank\.gif|transparent\.png)/i.test(String(imageRaw))) break;
-          imageRaw = "";
-        }
+        if (typeof value !== "string" || !value.trim()) continue;
+        const candidate = attr.includes("srcset") ? value.split(",")[0].trim().split(/\s+/)[0] : value.trim();
+        if (/^(data:|about:blank|#)/i.test(candidate) ||
+            /(placeholder|no[-_]?image|blank\.gif|transparent\.png|loading)/i.test(candidate)) continue;
+        imageRaw = candidate;
+        break;
       }
     }
-    // A few themes store poster URLs on the card itself.
-    imageRaw = imageRaw || scope.attr("data-poster") || scope.attr("data-image") || scope.attr("data-src") || "";
+
     if (!imageRaw) {
-      const styled = String(scope.attr("style") || "").match(/background-image\s*:\s*url\(\s*['"]?([^'")]+)['"]?\s*\)/i);
+      imageRaw = firstString(
+        scope.attr("data-poster"), scope.attr("data-poster-url"),
+        scope.attr("data-image"), scope.attr("data-src"), scope.attr("data-thumb"),
+        scope.find("[data-poster]").first().attr("data-poster"),
+        scope.find("[data-image]").first().attr("data-image"),
+        scope.find("[data-src]").first().attr("data-src")
+      );
+    }
+    if (!imageRaw) {
+      const styled = String(scope.attr("style") || scope.find("[style*='background']").first().attr("style") || "")
+        .match(/background(?:-image)?\s*:\s*url\(\s*['"]?([^'")]+)['"]?\s*\)/i);
       if (styled?.[1]) imageRaw = styled[1];
     }
+
     const image = abs(imageRaw, baseUrl);
-    if (!image || !/^https?:$/i.test(new URL(image).protocol)) return;
     if (!/^https?:$/i.test(new URL(href).protocol)) return;
+    // Do not emit entries without a usable poster: Vega renders those as blank
+    // skeleton cards, which looks like a successful catalog response to users.
+    if (!image || !/^https?:$/i.test(new URL(image).protocol)) return;
+
     seen.add(href);
     out.push({ title, link: href, image, provider: "multimovies" });
   };
 
-  $(selectors.join(", ")).each((_: number, el: any) => {
-    const scope = $(el);
-    // Avoid emitting nested wrappers for the same URL; dedupe is by post link.
-    const raw = scope.attr("data-save-title") || scope.find("[data-save-title]").first().attr("data-save-title") || "";
-    let item: any;
-    if (raw) {
-      item = parseJson(raw) || {};
-    }
-    add(scope, item);
+  // data-save-title is sometimes attached to a small control nested inside the
+  // poster card, not to the card itself. Read its JSON but parse the enclosing
+  // card so title links and lazy-loaded poster images stay associated.
+  $("[data-save-title]").each((_: number, el: any) => {
+    const node = $(el);
+    const raw = node.attr("data-save-title") || "";
+    const card = node.closest(cardSelector);
+    add(card.length ? card : node, parsePayload(raw));
   });
 
-  // Fallback for redesigns with no recognizable card class: inspect linked images
-  // and their nearest article/list/card container, keeping title and poster together.
+  // Support common card layouts used by the site's older and newer themes.
+  const selectors = [
+    "article.poster-card", ".poster-card", ".movie-card", ".movie-item",
+    ".film-item", ".result-item", ".items article", "#archive-content article",
+    "article.item", ".search-item", ".flw-item", ".item", ".card"
+  ];
+  $(selectors.join(", ")).each((_: number, el: any) => {
+    const scope = $(el);
+    const raw = scope.attr("data-save-title") ||
+      scope.find("[data-save-title]").first().attr("data-save-title") || "";
+    add(scope, parsePayload(raw));
+  });
+
+  // Last-resort parser for simple grids and anchor-wrapped posters.
   if (!out.length) {
-    $("a[href] img, a[href] [data-src], article img, .items img, img").each((_: number, el: any) => {
+    $("a[href] img, article img, .items img, .grid img, img").each((_: number, el: any) => {
       const node = $(el);
-      const scope = node.closest("article, li, .item, .card, .post, .result, a");
-      if (!scope.length) return;
-      const parent = scope.is("a") ? scope : scope;
-      add(parent, undefined);
+      const scope = node.closest(cardSelector);
+      add(scope.length ? scope : node.closest("a[href]"), undefined);
     });
   }
+
   return out;
 }
 function looksBlocked(html: string): boolean {
@@ -120,12 +173,11 @@ function looksBlocked(html: string): boolean {
 // The site can return a 200 response containing a JS shell or a WAF page
 // without the usual Cloudflare marker. For catalog/search requests, actual
 // cards are the reliable signal that the response is usable.
-function hasCatalogCards(html: string, providerContext: ProviderContext): boolean {
+function hasCatalogCards(html: string, providerContext: ProviderContext, baseUrl = BASE_URL): boolean {
   if (!html || looksBlocked(html)) return false;
   try {
     const $ = providerContext.cheerio.load(html);
-    return $("[data-save-title]").length > 0 ||
-      $("article.poster-card, .poster-card, .movie-card, .result-item").length > 0;
+    return parseCards($, baseUrl).length > 0;
   } catch {
     return false;
   }
@@ -164,7 +216,7 @@ async function fetchHtml(url: string, providerContext: ProviderContext): Promise
     html = await request(cookies, userAgent);
     // A saved cookie jar that no longer produces catalog cards is stale. Clear
     // it so the persisted prompt cooldown cannot strand the provider on a blank page.
-    if (hasCatalogCards(html, providerContext)) return html;
+    if (hasCatalogCards(html, providerContext, url)) return html;
     if (cookies) {
       cookies = "";
       cachedSession = null;
@@ -207,7 +259,7 @@ async function fetchHtml(url: string, providerContext: ProviderContext): Promise
         if (sessionCookies) {
           cachedSession = { cookies: sessionCookies, userAgent: sessionUserAgent };
           try { await kvStore.set(COOKIE_STORE_KEY, cachedSession); } catch (error) { console.warn("Could not save Multimovies session.", error); }
-          if (hasCatalogCards(result.data, providerContext)) {
+          if (hasCatalogCards(result.data, providerContext, url)) {
             try { await kvStore.set(VERIFY_COOLDOWN_KEY, Date.now()); } catch {}
           }
         }
