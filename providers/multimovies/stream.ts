@@ -25,7 +25,7 @@ function extractMediaUrls(html: string, $: any): string[] {
   };
 
   const normalized = cleanMediaUrl(html);
-  const matches = normalized.match(/https?:\/\/[^"'\\s<>]+?\.(?:m3u8|mp4|webm)(?:\?[^"'\\s<>]*)?/gi) || [];
+  const matches = normalized.match(/https?:\/\/[^"'\s<>]+?\.(?:m3u8|mp4|webm)(?:\?[^"'\s<>]*)?/gi) || [];
   for (const value of matches) add(value);
 
   if ($) {
@@ -39,7 +39,6 @@ function extractMediaUrls(html: string, $: any): string[] {
   }
   return Array.from(found);
 }
-
 
 // Helper to parse the watch config (matches your Kotlin parseWatchConfig)
 function extractObject(html: string, marker: string): string {
