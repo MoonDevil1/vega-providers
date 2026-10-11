@@ -7,5 +7,13 @@
     "icon": "https://cdn.jsdelivr.net/gh/Zenda-Cross/vega-providers@main/assets/multi.png",
     "type": "global",
     "disabled": false
+  },
+  {
+    "display_name": "OG Pirate Bot Live TV",
+    "value": "ogpiratebot",
+    "version": "0.1.0",
+    "icon": "https://theogpiratebot.online/favicon.ico",
+    "type": "global",
+    "disabled": false
   }
 ]
