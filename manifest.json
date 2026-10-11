@@ -3,7 +3,7 @@
     "name": "Multimovies",
     "display_name": "Multimovies",
     "value": "multimovies",
-    "version": "1.2.1",
+    "version": "1.2.2",
     "icon": "https://multimovies.garden/assets/img/logo.png",
     "type": "global",
     "disabled": false

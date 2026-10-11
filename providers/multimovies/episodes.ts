@@ -1,10 +1,6 @@
 import { EpisodeLink, ProviderContext } from "../types";
 
-const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
-  "Accept-Language": "en-US,en;q=0.9",
-  Referer: "https://multimovies.garden/",
-};
+import { fetchHtml } from "./http";
 
 function pageUrl(base: string, season: number, range?: number): string {
   const url = new URL(base);
@@ -28,38 +24,29 @@ function parseEpisodes($: any, url: string, seasonWanted: number): EpisodeLink[]
   return out;
 }
 
-async function fetchPage(url: string, providerContext: ProviderContext): Promise<{ $: any }> {
-  const response = await providerContext.axios.get(url, {
-    headers: { ...providerContext.commonHeaders, ...HEADERS },
-    timeout: 20000, maxRedirects: 5,
-  });
-  const html = typeof response.data === "string" ? response.data : "";
+async function fetchPage(url: string, providerContext: ProviderContext, signal?: AbortSignal): Promise<{ $: any }> {
+  const html = await fetchHtml(url, providerContext, signal);
   return { $: providerContext.cheerio.load(html) };
 }
 
-export async function getEpisodeLinks({ url, providerContext }: {
-  url: string; providerContext: ProviderContext;
+export async function getEpisodeLinks({ url, providerContext, signal }: {
+  url: string; providerContext: ProviderContext; signal?: AbortSignal;
 }): Promise<EpisodeLink[]> {
   try {
     const base = new URL(url);
     base.hash = "";
     const season = Number(base.searchParams.get("season")) || 1;
-    const first = await fetchPage(base.href, providerContext);
+    const first = await fetchPage(base.href, providerContext, signal);
     const episodes = parseEpisodes(first.$, base.href, season);
     const ranges = Array.from(new Set<number>(first.$("select.episode-range-select option")
+      .filter((_: number, el: any) => !first.$(el).is(":selected"))
       .map((_: number, el: any) => Number(first.$(el).attr("value")))
-      .get().filter((n: number) => Number.isInteger(n) && n > 0)));
+      .get().filter((n: number) => Number.isInteger(n) && n >= 0)));
     const extraPages = await Promise.all(ranges
-      .filter((range) => range !== Number(base.searchParams.get("ep_range")))
       .map(async (range) => {
         const target = pageUrl(base.href, season, range);
-        try {
-          const page = await fetchPage(target, providerContext);
-          return parseEpisodes(page.$, target, season);
-        } catch (error) {
-          console.warn("Multimovies episode range failed:", target, error);
-          return [];
-        }
+        const page = await fetchPage(target, providerContext, signal);
+        return parseEpisodes(page.$, target, season);
       }));
     const unique = new Map<string, EpisodeLink>();
     for (const episode of [...episodes, ...extraPages.flat()]) {
@@ -84,10 +71,10 @@ export async function getEpisodeLinks({ url, providerContext }: {
     });
   } catch (error) {
     console.error("Multimovies episode parsing failed:", url, error);
-    return [];
+    throw error;
   }
 }
 
-export async function getEpisodes(args: { url: string; providerContext: ProviderContext }): Promise<EpisodeLink[]> {
+export async function getEpisodes(args: { url: string; providerContext: ProviderContext; signal?: AbortSignal }): Promise<EpisodeLink[]> {
   return getEpisodeLinks(args);
 }

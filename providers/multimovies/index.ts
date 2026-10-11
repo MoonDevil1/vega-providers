@@ -21,10 +21,8 @@ const multimovies: ProviderType = {
   GetEpisodeLinks: async ({ url, providerContext }) =>
     getEpisodeLinks({ url, providerContext }),
 
-  GetStream: async ({ link, type, providerContext }) => {
-    const { streams, subtitles } = await getStream({ link, type, providerContext });
-    return streams.map((stream) => ({ ...stream, subtitles }));
-  },
+  GetStream: ({ link, type, providerContext, signal }) =>
+    getStream({ link, type, providerContext, signal }),
 };
 
 export default multimovies;

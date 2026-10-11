@@ -1,7 +1,7 @@
 // providers/multimovies/stream.ts
 import { Stream, TextTracks, ProviderContext } from "../types";
 
-const BASE_URL = "https://multimovies.garden";
+import { BASE_URL, fetchHtml } from "./http";
 
 // Normalize escaped media URLs commonly embedded in player configuration.
 function cleanMediaUrl(value: string): string {
@@ -62,7 +62,8 @@ return "";
 
 function parseWatchConfig(html: string): { id: string; name: string; url: string }[] {
 const servers: { id: string; name: string; url: string }[] = [];
-const raw = extractObject(html, "const watchConfig = ");
+const assignment = /(?:const|let|var)\s+watchConfig\s*=\s*/.exec(html);
+const raw = assignment ? extractObject(html, assignment[0]) : "";
 if (!raw) return servers;
 try {
 const config = JSON.parse(raw);
@@ -104,44 +105,41 @@ export const getStream = async function ({
 link,
 type,
 providerContext,
+signal,
 }: {
 link: string;
 type: string;
 providerContext: ProviderContext;
-}): Promise<{ streams: Stream[]; subtitles: TextTracks }> {
-const { axios, cheerio } = providerContext;
+signal?: AbortSignal;
+}): Promise<Stream[]> {
+const { cheerio } = providerContext;
+// Carry cancellation and bound each host request. No site cookies go here.
+const axios = {
+get: (url: string, options: any = {}) => providerContext.axios.get(url, { timeout: 15000, ...options, signal }),
+post: (url: string, data: any, options: any = {}) => providerContext.axios.post(url, data, { timeout: 15000, ...options, signal }),
+};
 const streams: Stream[] = [];
 const subtitles: TextTracks = [];
 
 try {
-const direct = cleanMediaUrl(link);
+const direct = new URL(cleanMediaUrl(link), BASE_URL).href;
 const pathname = new URL(direct, BASE_URL).pathname;
 const extension = pathname.match(/\.(m3u8|mp4|webm)$/i)?.[1]?.toLowerCase();
-if (extension) {
-return {
-streams: [{
+if (extension && /^https?:\/\//i.test(direct)) {
+return [{
 server: "Direct Link",
 link: direct,
 type: extension,
 headers: { Referer: new URL(direct, BASE_URL).origin + "/" },
-}],
 subtitles,
-};
+}];
 }
 } catch { /* continue with the watch page */ }
 
 
 try {
 // 1. Fetch the watch page and parse the server list
-const { data: html } = await axios.get(link, {
-headers: {
-...providerContext.commonHeaders,
-"User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
-Referer: BASE_URL + "/",
-},
-timeout: 20000,
-maxRedirects: 5,
-});
+const html = await fetchHtml(link, providerContext, signal);
 const servers = parseWatchConfig(html);
 
 // 2. If no servers, fall back to a generic m3u8 grep on the page
@@ -155,7 +153,8 @@ for (const mediaUrl of extractMediaUrls(html, $)) {
 const extension = new URL(mediaUrl).pathname.match(/\.(m3u8|mp4|webm)$/i)?.[1]?.toLowerCase() || "m3u8";
 streams.push({ server: "Generic", link: mediaUrl, type: extension, headers: { Referer: referer } });
 }
-return { streams, subtitles };
+if (!streams.length) throw new Error("No playable media found on the Multimovies watch page");
+return streams.map(stream => ({ ...stream, subtitles }));
 
 }
 
@@ -176,8 +175,15 @@ const episode = episodeMatch ? parseInt(episodeMatch[1], 10) : undefined;
 
 // 4. Resolve each server (adapted from your Kotlin resolveServer)
 const promises = servers.map(async (server) => {
+const streams: Stream[] = [];
 try {
-const host = new URL(server.url, BASE_URL).hostname.toLowerCase();
+server.url = new URL(cleanMediaUrl(server.url), BASE_URL).href;
+const host = new URL(server.url).hostname.toLowerCase();
+if (/\.(?:m3u8|mp4|webm)(?:[?#]|$)/i.test(server.url)) {
+return [{ server: server.name, link: server.url,
+  type: new URL(server.url).pathname.split(".").pop() || "m3u8",
+  headers: { Referer: link } }];
+}
 // --- Vidout ---
 if (host.includes("vidout.pages.dev") && tmdbId) {
 const raw = "https://raw.githubusercontent.com/Watchout2025/api/refs/heads/main";
@@ -241,7 +247,8 @@ const srvList = [
 { id: "s31", name: "Orion" },
 { id: "s3", name: "Edmunds" },
 ];
-for (const srv of srvList) {
+await Promise.all(srvList.map(async (srv) => {
+try {
 let body: any;
 if (srv.id === "s40" && isTv && season && episode) {
 const { data } = await axios.get(`${api}/stream/aphelion-tv/${tmdbId}/${season}/${episode}`, {
@@ -281,11 +288,14 @@ uri: sub.url,
 }
 }
 }
+} catch (error) {
+console.warn(`Multimovies ${srv.name} unavailable`, error);
 }
+}));
 }
 
 // --- Filmu ---
-if (host.includes("filmu.in") && tmdbId) {
+if (host.includes("filmu.in") && tmdbId && (!isTv || (season && episode))) {
 const host2 = "https://embed.filmu.in";
 const path = isTv
 ? `${host2}/api/singularity-tv?tmdb=${tmdbId}&s=${season}&e=${episode}`
@@ -339,12 +349,13 @@ streams.push({ server: server.name, link: mediaUrl, type: extension, headers: { 
 } catch (e) {
 console.error(`Error resolving ${server.name}`, e);
 }
+return streams;
 });
 
-await Promise.all(promises);
+streams.push(...(await Promise.all(promises)).flat());
 
 } catch (e) {
-console.error("getStream error:", e);
+throw e;
 }
 
 const uniqueStreams = new Map<string, Stream>();
@@ -355,5 +366,6 @@ const uniqueSubtitles = new Map<string, TextTracks[number]>();
 for (const subtitle of subtitles) {
 if (subtitle.uri && !uniqueSubtitles.has(subtitle.uri)) uniqueSubtitles.set(subtitle.uri, subtitle);
 }
-return { streams: Array.from(uniqueStreams.values()), subtitles: Array.from(uniqueSubtitles.values()) };
+if (!uniqueStreams.size) throw new Error("No supported Multimovies server returned playable media");
+return Array.from(uniqueStreams.values()).map(stream => ({ ...stream, subtitles: Array.from(uniqueSubtitles.values()) }));
 };
