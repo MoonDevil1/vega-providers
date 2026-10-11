@@ -1,36 +1,20 @@
-// MultiMovies routes verified against the live site's navigation.
 export const catalog = [
-  { title: "Latest Movies", filter: "/movies" },
-  { title: "Latest TV Shows", filter: "/series" },
-  { title: "Trending", filter: "/trending" },
-  { title: "Bollywood", filter: "/genre/bollywood-movies" },
-  { title: "Hollywood", filter: "/genre/hollywood" },
-  { title: "South Indian", filter: "/genre/south-indian" },
-  { title: "Netflix", filter: "/genre/netflix" },
-  { title: "Jio Hotstar", filter: "/genre/jio-hotstar" },
-  { title: "Anime Series", filter: "/genre/anime-series" },
-  { title: "Anime Movies", filter: "/genre/anime-movies" },
-];
+  { title: "Trending", filter: "" },
+  { title: "Movies", filter: "movies" },
+  { title: "Series", filter: "series" },
+  { title: "K-drama", filter: "genre/k-drama" },
 
-export const genres = [
-  { title: "Action", filter: "/genre/action" },
-  { title: "Adventure", filter: "/genre/adventure" },
-  { title: "Animation", filter: "/genre/animation" },
-  { title: "Comedy", filter: "/genre/comedy" },
-  { title: "Crime", filter: "/genre/crime" },
-  { title: "Documentary", filter: "/genre/documentary" },
-  { title: "Fantasy", filter: "/genre/fantasy" },
-  { title: "Family", filter: "/genre/family" },
-  { title: "Horror", filter: "/genre/horror" },
-  { title: "Mystery", filter: "/genre/mystery" },
-  { title: "Romance", filter: "/genre/romance" },
-  { title: "Thriller", filter: "/genre/thriller" },
-  { title: "Science Fiction", filter: "/genre/science-fiction" },
-  { title: "Sports", filter: "/genre/sports" },
-  { title: "Bollywood", filter: "/genre/bollywood-movies" },
-  { title: "Hollywood", filter: "/genre/hollywood" },
-  { title: "South Indian", filter: "/genre/south-indian" },
-  { title: "Netflix", filter: "/genre/netflix" },
-  { title: "Anime Series", filter: "/genre/anime-series" },
-  { title: "Anime Movies", filter: "/genre/anime-movies" },
+  /*// OTT
+  { title: "Amazon Prime", filter: "genre/amazon-prime" },
+  { title: "Jio Hotstar", filter: "genre/disney-hotstar" },
+  { title: "Jio OTT", filter: "genre/jio-ott" },
+  { title: "K-drama", filter: "genre/k-drama" },
+  { title: "MX Player", filter: "genre/mx-player" },
+  { title: "Netflix", filter: "genre/netflix" },
+  { title: "Sony Liv", filter: "genre/sony-liv" },
+  { title: "Zee 5", filter: "genre/zee-5" },
+
+  // Genre
+  { title: "Action", filter: "genre/action" },*/
+  
 ];
