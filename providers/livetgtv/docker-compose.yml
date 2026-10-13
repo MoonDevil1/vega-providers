@@ -1,10 +1,12 @@
-# Runs the V1 companion converter from this repository.
-# Requires Docker Compose and a private .env file.
+# Lightweight converter, runs separately from the Vega provider sandbox.
+# Expose only through a secured HTTPS reverse proxy.
 services:
   livetgtv-v1-converter:
-    image: mhdzumair/mediaflow-proxy:latest
+    image: ghcr.io/mhdzumair/mediaflow-proxy-light:latest
     restart: unless-stopped
     environment:
-      API_PASSWORD: ${MEDIAFLOW_API_PASSWORD:?Set MEDIAFLOW_API_PASSWORD}
+      APP__SERVER__HOST: 0.0.0.0
+      APP__SERVER__PORT: 8888
+      APP__AUTH__API_PASSWORD: ${MEDIAFLOW_API_PASSWORD:?Set MEDIAFLOW_API_PASSWORD}
     ports:
       - "127.0.0.1:8888:8888"
