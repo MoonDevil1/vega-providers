@@ -5,10 +5,12 @@ export async function buildMediaFlowUrl(
 ): Promise<string | null> {
   const rawBase = String((await ctx.kvStore.get<string>("mediaflowUrl")) ?? "").trim();
   const password = String((await ctx.kvStore.get<string>("mediaflowPassword")) ?? "");
-  if (!rawBase) return null;
+  // Test fallback: a separately installed proxy on the SAME Android device.
+  // This does not start a converter; it only supplies the loopback address.
+  const selectedBase = rawBase || "http://127.0.0.1:8888";
   let base: URL;
   try {
-    base = new URL(rawBase);
+    base = new URL(selectedBase);
     // Only a trusted HTTPS deployment, or local machine for development.
     if (base.protocol !== "https:" && !(base.protocol === "http:" && ["127.0.0.1", "localhost"].includes(base.hostname))) return null;
     if (base.username || base.password) return null;
