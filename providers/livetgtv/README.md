@@ -1,12 +1,15 @@
-# LiveTGTV V1 (experimental)
+# LiveTGTV V1 — optional MediaFlow HLS bridge
 
-This provider uses **V1 only**, never V2. V1 API routes here were supplied in prior project discussion; the site could not be reached during implementation, so the API shapes/endpoints are **unverified**.
+This provider uses only LiveTGTV V1, never V2. The V1 endpoint fields remain unverified against the live website.
 
-- Channel list: GET `/api/public/channels`.
-- Channel metadata/playback: GET `/api/public/channels/{id}`.
-- Supports channel listing, local title search, channel metadata and directly playable HLS/MP4 sources.
-- **Known limitation:** MPEG-DASH streams protected by ClearKey are *not* playable via this provider yet. Vega's Stream interface has no verified DRM fields; changing `.mpd` into `.m3u8` is not a conversion. This implementation deliberately returns no stream for such a channel rather than claiming playback will work.
-- No V2 fallback or API calls. Does not modify Multimovies.
-- Requires build output in `dist/livetgtv` before Vega can install the new provider.
+## Configure
+1. Run your own [MediaFlow Proxy](https://github.com/mhdzumair/mediaflow-proxy), securely accessible from the Android device.
+2. In Vega Provider Manager, open the LiveTGTV V1 settings and set `mediaflowUrl` to your HTTPS MediaFlow host. Set `mediaflowPassword` to match the proxy configuration.
+3. Refresh/reinstall provider 0.2.0 after its GitHub Actions build completes.
+4. A V1 MPD is presented as HLS `m3u8` through `/proxy/mpd/manifest.m3u8`, using the source URL's fresh token.
 
-Please verify the V1 API schema against an authorized sample before declaring playback support.
+If the V1 response includes authorized ClearKey `drm.keyId` and `drm.key`, these are passed to your proxy. **Security:** these values and the proxy password are part of the generated URL. Only use your own trusted proxy. Do not paste or log stream URLs or expose the proxy publicly. URLs may also expire.
+
+If no proxy is configured or the necessary keys are absent, the provider falls back to direct MPD. DRM-protected playback then may fail. This is NOT an independently verified working stream fix.
+
+No changes are required to the Vega player for HLS playback. The optional settings API must be supported by the installed app version.
