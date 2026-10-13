@@ -1,5 +1,6 @@
 import { ProviderContext, Stream } from "../types";
 import { getChannel, idFromLink } from "./api";
+import { buildMediaFlowUrl } from "./proxy";
 
 function sourceUrls(data: any): string[] {
   const sources = [data?.stream, data?.streamUrl, data?.hlsUrl, data?.mpdUrl, data?.url, data?.sources, data?.streams];
@@ -51,7 +52,9 @@ export async function getStream({ link, signal, providerContext }: {
     if (pathname.endsWith(".m3u8")) {
       streams.push({ server: "LiveTGTV V1", link: url, type: "m3u8", quality: "auto", ...(headers ? { headers } : {}) });
     } else if (pathname.endsWith(".mpd")) {
-      streams.push({ server: "LiveTGTV V1 (DASH)", link: url, type: "mpd", quality: "auto", ...(headers ? { headers } : {}), ...(drm ? { drm } : {}) } as Stream);
+      const hls = await buildMediaFlowUrl(providerContext, url, channel);
+      if (hls) streams.push({ server: "LiveTGTV V1 (MediaFlow HLS)", link: hls, type: "m3u8", quality: "auto" });
+      else streams.push({ server: "LiveTGTV V1 (DASH)", link: url, type: "mpd", quality: "auto", ...(headers ? { headers } : {}), ...(drm ? { drm } : {}) } as Stream);
     } else if (pathname.endsWith(".mp4")) {
       streams.push({ server: "LiveTGTV V1", link: url, type: "mp4", quality: "auto" });
     }
