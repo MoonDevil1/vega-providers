@@ -1,0 +1,10 @@
+# Runs the V1 companion converter from this repository.
+# Requires Docker Compose and a private .env file.
+services:
+  livetgtv-v1-converter:
+    image: mhdzumair/mediaflow-proxy:latest
+    restart: unless-stopped
+    environment:
+      API_PASSWORD: ${MEDIAFLOW_API_PASSWORD:?Set MEDIAFLOW_API_PASSWORD}
+    ports:
+      - "127.0.0.1:8888:8888"
