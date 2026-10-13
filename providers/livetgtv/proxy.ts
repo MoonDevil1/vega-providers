@@ -15,6 +15,8 @@ export async function buildMediaFlowUrl(
   } catch { return null; }
   const proxy = new URL("/proxy/mpd/manifest.m3u8", base);
   proxy.searchParams.set("d", mpdUrl);
+  // Keep live playback behind the live edge to allow segment prebuffering.
+  proxy.searchParams.set("start_offset", "-18");
   if (password) proxy.searchParams.set("api_password", password);
   const headers = channel?.headers ?? channel?.requestHeaders;
   if (headers && typeof headers === "object" && !Array.isArray(headers)) {
