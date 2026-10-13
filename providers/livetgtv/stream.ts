@@ -28,13 +28,30 @@ export async function getStream({ link, signal, providerContext }: {
   const channel = await getChannel(providerContext, idFromLink(link), signal);
   const urls = sourceUrls(channel);
   const streams: Stream[] = [];
+  // License-server URLs must be issued by the V1 service for this playback.
+  // Key IDs or raw decryption keys are not copied into URLs or logs.
+  const licenseServer = String(
+    channel?.drm?.licenseServer ?? channel?.drm?.licenseUrl ??
+    channel?.licenseServer ?? ""
+  );
+  const drmType = String(channel?.drm?.type ?? "").toLowerCase();
+  const drm = /^https:\/\//i.test(licenseServer) &&
+    ["clearkey", "widevine", "playready"].includes(drmType)
+      ? { type: drmType, licenseServer } : undefined;
+  const requestedHeaders = channel?.headers ?? channel?.requestHeaders;
+  const headers = requestedHeaders && typeof requestedHeaders === "object" &&
+    !Array.isArray(requestedHeaders)
+      ? Object.fromEntries(Object.entries(requestedHeaders).filter(
+          ([key, value]) => typeof value === "string" && !/[\r\n]/.test(key + value)
+        ))
+      : undefined;
   for (const url of urls) {
     if (!safeHttpUrl(url)) continue;
     const pathname = new URL(url).pathname.toLowerCase();
     if (pathname.endsWith(".m3u8")) {
-      streams.push({ server: "LiveTGTV V1", link: url, type: "m3u8", quality: "auto" });
+      streams.push({ server: "LiveTGTV V1", link: url, type: "m3u8", quality: "auto", ...(headers ? { headers } : {}) });
     } else if (pathname.endsWith(".mpd")) {
-      streams.push({ server: "LiveTGTV V1 (DASH)", link: url, type: "mpd", quality: "auto" });
+      streams.push({ server: "LiveTGTV V1 (DASH)", link: url, type: "mpd", quality: "auto", ...(headers ? { headers } : {}), ...(drm ? { drm } : {}) } as Stream);
     } else if (pathname.endsWith(".mp4")) {
       streams.push({ server: "LiveTGTV V1", link: url, type: "mp4", quality: "auto" });
     }
