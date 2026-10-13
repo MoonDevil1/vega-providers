@@ -15,6 +15,18 @@ export async function buildMediaFlowUrl(
     if (base.protocol !== "https:" && !(base.protocol === "http:" && ["127.0.0.1", "localhost"].includes(base.hostname))) return null;
     if (base.username || base.password) return null;
   } catch { return null; }
+  // Do not hand Vega an unplayable 127.0.0.1 URL if no service is running.
+  try {
+    const health = new URL("/health", base);
+    const response = await ctx.axios.get(health.toString(), { timeout: 2500 });
+    if (response.status !== 200 || response.data?.status !== "ok") {
+      console.warn("[LiveTGTV V1] MediaFlow service failed health check");
+      return null;
+    }
+  } catch {
+    console.warn("[LiveTGTV V1] No reachable MediaFlow converter at configured address");
+    return null;
+  }
   const proxy = new URL("/proxy/mpd/manifest.m3u8", base);
   proxy.searchParams.set("d", mpdUrl);
   // Keep live playback behind the live edge to allow segment prebuffering.
