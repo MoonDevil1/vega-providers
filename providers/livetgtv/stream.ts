@@ -33,14 +33,12 @@ export async function getStream({ link, signal, providerContext }: {
     const pathname = new URL(url).pathname.toLowerCase();
     if (pathname.endsWith(".m3u8")) {
       streams.push({ server: "LiveTGTV V1", link: url, type: "m3u8", quality: "auto" });
+    } else if (pathname.endsWith(".mpd")) {
+      streams.push({ server: "LiveTGTV V1 (DASH)", link: url, type: "mpd", quality: "auto" });
     } else if (pathname.endsWith(".mp4")) {
       streams.push({ server: "LiveTGTV V1", link: url, type: "mp4", quality: "auto" });
     }
   }
-  if (!streams.length && urls.some(url => /\.mpd(?:\?|$)/i.test(url))) {
-    // DASH+ClearKey needs a DRM-capable Vega player or an explicitly authorized playback service.
-    // Never relabel an MPD as HLS or leak DRM keys in a proxy URL.
-    console.warn("[LiveTGTV V1] DASH playback requires supported DRM integration; no HLS source provided");
-  }
+  // Vega Player.tsx accepts type "mpd". Encrypted sources still need authorized DRM support.
   return streams;
 }
