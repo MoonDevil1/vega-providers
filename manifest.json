@@ -7,5 +7,14 @@
     "icon": "https://cdn.jsdelivr.net/gh/Zenda-Cross/vega-providers@main/assets/multi.png",
     "type": "global",
     "disabled": false
+  },
+  {
+    "name": "LiveTGTV V1",
+    "display_name": "LiveTGTV V1",
+    "value": "livetgtv",
+    "version": "0.1.0",
+    "icon": "",
+    "type": "global",
+    "disabled": false
   }
 ]
