@@ -1,22 +1,10 @@
 import { Info, Link, ProviderContext } from "../types";
+import { fetchHtml } from "./http";
 
-const headers = {
-  Accept:
-    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-  "Cache-Control": "no-store",
-  "Accept-Language": "en-US,en;q=0.9",
-  DNT: "1",
-  "sec-ch-ua":
-    '"Not_A Brand";v="8", "Chromium";v="120", "Microsoft Edge";v="120"',
-  "sec-ch-ua-mobile": "?0",
-  "sec-ch-ua-platform": '"Windows"',
-  "Sec-Fetch-Dest": "document",
-  "Sec-Fetch-Mode": "navigate",
-  "Sec-Fetch-Site": "none",
-  "Upgrade-Insecure-Requests": "1",
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
-};
+function abs(href: string, base: string): string {
+  try { return new URL(href, base).toString(); } catch { return ""; }
+}
+function text(value: string): string { return value.replace(/\s+/g, " ").trim(); }
 
 export const getMeta = async function ({
   link,
@@ -25,174 +13,77 @@ export const getMeta = async function ({
   link: string;
   providerContext: ProviderContext;
 }): Promise<Info> {
-  const { axios, cheerio } = providerContext;
-  const url = link;
-  const baseUrl = url.split("/").slice(0, 3).join("/");
-
-  const emptyResult: Info = {
-    title: "",
-    synopsis: "",
-    image: "",
-    imdbId: "",
-    type: "movie",
-    linkList: [],
-  };
-
+  const { cheerio } = providerContext;
+  const empty: Info = { title: "", synopsis: "", image: "", imdbId: "", type: "movie", linkList: [] };
   try {
-    const response = await axios.get(url, {
-      headers: { ...headers, Referer: baseUrl },
+    const html = await fetchHtml(link, providerContext);
+    const $ = cheerio.load(html);
+    const canonical = link.split("#")[0].split("?")[0].replace(/\/$/, "");
+    const seriesRoute = /\/series\/[^/]+/i.test(canonical);
+    const episodeRoute = /\/season\/\d+\/episode\/\d+/i.test(canonical);
+    const episodes: { href: string; season: number; episode: number }[] = [];
+
+    $("a[href]").each((_, node) => {
+      const href = abs($(node).attr("href") || "", canonical);
+      const m = href.match(/\/series\/[^/?#]+\/season\/(\d+)\/episode\/(\d+)(?:[/?#]|$)/i);
+      if (m) episodes.push({ href: href.split("#")[0], season: Number(m[1]), episode: Number(m[2]) });
     });
 
-    const $ = cheerio.load(response.data);
-
-    const result: Info = {
-      title: "",
-      synopsis: "",
-      image: "",
-      imdbId: "",
-      type: "movie",
-      linkList: [],
-    };
-
-    // Pull inline watchItem / watchConfig JSON objects
     let watchItem: any = null;
-    let watchConfig: any = null;
-
-    $("script").each((_, el) => {
-      const txt = $(el).html() || "";
-
-      const itemMatch = txt.match(
-        /const\s+watchItem\s*=\s*(\{[\s\S]*?\})\s*;/
-      );
-      if (itemMatch && !watchItem) {
-        try {
-          watchItem = JSON.parse(itemMatch[1]);
-        } catch (_) {}
-      }
-
-      const cfgMatch = txt.match(
-        /const\s+watchConfig\s*=\s*(\{[\s\S]*?\})\s*;/
-      );
-      if (cfgMatch && !watchConfig) {
-        try {
-          watchConfig = JSON.parse(cfgMatch[1]);
-        } catch (_) {}
-      }
+    $("script").each((_, node) => {
+      const raw = $(node).html() || "";
+      const m = raw.match(/(?:const|let|var)\s+watchItem\s*=\s*(\{[\s\S]*?\})\s*;/);
+      if (m && !watchItem) { try { watchItem = JSON.parse(m[1]); } catch {} }
     });
 
-    // Title
-    result.title =
-      watchItem?.title?.toString().trim() ||
-      $(".cinejoy-detail-title").first().text().trim() ||
-      $(".watch-details-summary").first().text().trim() ||
-      "Unknown Title";
-
-    // Poster image
-    result.image =
-      watchItem?.poster ||
-      $(".watch-bg img").first().attr("src") ||
+    const title = text(watchItem?.title?.toString() ||
+      $(".cinejoy-detail-title").first().text() ||
+      $(".watch-details-summary").first().text() ||
+      $("h1").first().text() ||
+      $("meta[property='og:title']").attr("content") || "")
+      .replace(/\s*[-|]\s*MultiMovies.*$/i, "") || "Unknown Title";
+    const image = watchItem?.poster ||
       $(".cinejoy-detail-poster img").first().attr("src") ||
-      "";
+      $(".watch-bg img").first().attr("src") ||
+      $("meta[property='og:image']").attr("content") || "";
+    const synopsis = text($("#cinejoyOverview").first().text() ||
+      $(".cinejoy-detail-overview").first().text() ||
+      $("meta[name='description']").attr("content") ||
+      $("meta[property='og:description']").attr("content") || "");
+    const isSeries = seriesRoute || episodeRoute || !!$(".cinejoy-episodes-section").length ||
+      episodes.length > 0 || /series|tv/i.test(watchItem?.type || "");
 
-    // Synopsis
-    result.synopsis =
-      $("#cinejoyOverview").first().text().trim() ||
-      $(".cinejoy-detail-overview").first().text().trim() ||
-      "";
+    const result: Info = { title, synopsis, image, imdbId: "", type: isSeries ? "series" : "movie", linkList: [], webUrl: link };
 
-    // Type – check for Cinejoy episodes section
-    const hasCinejoyEpisodes = $(".cinejoy-episodes-section").length > 0;
-    result.type =
-      watchItem?.type === "tv" || watchItem?.type === "series" || hasCinejoyEpisodes ? "series" : "movie";
-
-    // IMDb ID (not exposed in this HTML)
-    result.imdbId = "";
-
-    // Build linkList
-    const linkList: Link[] = [];
-
-    if (result.type === "series" || hasCinejoyEpisodes) {
-      // Strip any query string and trailing slashes to get the canonical series URL
-      // e.g. https://site.com/series/the-boys-1560?season=2 -> https://site.com/series/the-boys-1560
-      const seriesBase = url
-        .split("?")[0]
-        .replace(/\/$/, "")
-        .replace(/\/season\/\d+(\/episode\/\d+)?$/i, "")
-        .replace(/\/episode\/\d+$/i, "");
-
-      const seasonMap = new Map<
-        string,
-        { title: string; episodesLink: string }
-      >();
-
-      // 1) Season dropdown
+    if (isSeries) {
+      const seriesBase = canonical.replace(/\/season\/\d+\/episode\/\d+$/i, "");
+      const seasons = new Map<number, string>();
+      episodes.forEach(ep => seasons.set(ep.season, `Season ${ep.season}`));
       $(".cinejoy-season-select option").each((_, opt) => {
-        const season = ($(opt).attr("value") || "").trim();
-        if (!season) return;
-
-        const label = $(opt).text().trim() || `Season ${season}`;
-
-        seasonMap.set(season, {
-          title: label,
-          // Use query-string style URL
-          episodesLink: `${seriesBase}?season=${season}`,
-        });
+        const value = text($(opt).attr("value") || "");
+        const match = value.match(/\d+/);
+        if (match) seasons.set(Number(match[0]), text($(opt).text()) || `Season ${match[0]}`);
       });
-
-      // 2) Season grids (fallback)
-      $(".cinejoy-season-grid").each((_, grid) => {
-        const id = $(grid).attr("id") || "";
-        const m = id.match(/cinejoy-season-(\d+)/);
-        if (!m) return;
-
-        const season = m[1];
-        if (seasonMap.has(season)) return;
-
-        seasonMap.set(season, {
-          title: `Season ${season}`,
-          episodesLink: `${seriesBase}?season=${season}`,
-        });
+      $("a[href]").each((_, node) => {
+        const href = abs($(node).attr("href") || "", seriesBase);
+        const match = href.match(/\/series\/[^/?#]+(?:\?season=(\d+)|\/season\/(\d+))(?:[&#/]|$)/i);
+        if (match) {
+          const n = Number(match[1] || match[2]);
+          if (n >= 0) seasons.set(n, `Season ${n}`);
+        }
       });
-
-      if (seasonMap.size > 0) {
-        seasonMap.forEach((value) => {
-          linkList.push({
-            title: value.title,
-            quality: "",
-            episodesLink: value.episodesLink,
-            directLinks: [],
-          });
-        });
-      } else {
-        // Fallback: single season entry
-        linkList.push({
-          title: "Season 1",
-          quality: "",
-          episodesLink: `${seriesBase}?season=1`,
-          directLinks: [],
-        });
-      }
+      const currentSeason = canonical.match(/\/season\/(\d+)\/episode\/(\d+)/i)?.[1];
+      if (currentSeason) seasons.set(Number(currentSeason), `Season ${currentSeason}`);
+      if (!seasons.size) seasons.set(1, "Season 1");
+      result.linkList = [...seasons.entries()].sort((a, b) => a[0] - b[0]).map(([n, label]): Link => ({
+        title: label, quality: "", episodesLink: `${seriesBase}?season=${n}`,
+      }));
     } else {
-      // Movie / single‑link behaviour
-      linkList.push({
-        title: result.title,
-        quality: "",
-        episodesLink: url,
-        directLinks: [
-          {
-            title: result.title,
-            link: url,
-            type: "movie",
-          },
-        ],
-      });
+      result.linkList = [{ title, quality: "", episodesLink: canonical, directLinks: [{ title, link: canonical, type: "movie" }] }];
     }
-
-    result.linkList = linkList;
-
     return result;
   } catch (err) {
     console.log("getMeta error:", err);
-    return emptyResult;
+    return empty;
   }
 };
