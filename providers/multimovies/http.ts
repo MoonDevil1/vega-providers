@@ -1,6 +1,6 @@
 import { ProviderContext } from "../types";
 
-export const BASE_URL = "https://multimovies.garden";
+export const BASE_URL = "https://m1.multimovies.courses";
 const SESSION_KEY = "multimovies.session.v2";
 const ATTEMPT_KEY = "multimovies.verification.v2";
 const RETRY_DELAY = 30_000;
